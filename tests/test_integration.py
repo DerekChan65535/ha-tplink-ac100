@@ -341,3 +341,50 @@ async def test_unsafe_led_refusal_is_explained_without_reauth(hass, ac_entry, ac
             await coordinator.async_control(action)
         assert error.value.translation_key == "led_wifi_sync_unsafe"
         reauth.assert_not_called()
+
+
+async def test_expired_session_is_a_retryable_update_failure_not_reauth(hass, ac_entry, ac_api):
+    from custom_components.tplink_ac100.api import Ac100SessionExpiredError
+
+    coordinator = await setup(hass, ac_entry)
+    ac_api.async_get_snapshot.side_effect = Ac100SessionExpiredError("Session rejected")
+    with patch.object(type(ac_entry), "async_start_reauth") as reauth:
+        await coordinator.async_refresh()
+    assert not coordinator.last_update_success
+    reauth.assert_not_called()
+    ac_api.async_get_snapshot.side_effect = None
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success
+
+
+async def test_locked_account_is_a_retryable_update_failure_not_reauth(hass, ac_entry, ac_api):
+    from custom_components.tplink_ac100.api import Ac100AccountLockedError
+
+    coordinator = await setup(hass, ac_entry)
+    ac_api.async_get_snapshot.side_effect = Ac100AccountLockedError("Locked")
+    with patch.object(type(ac_entry), "async_start_reauth") as reauth:
+        await coordinator.async_refresh()
+    assert not coordinator.last_update_success
+    reauth.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("error_name", "translation_key"),
+    [
+        ("Ac100SessionExpiredError", "session_expired"),
+        ("Ac100AccountLockedError", "account_locked"),
+    ],
+)
+async def test_control_session_errors_have_specific_messages_and_no_reauth(
+    hass, ac_entry, ac_api, error_name, translation_key
+):
+    from custom_components.tplink_ac100 import api as api_module
+
+    hass.config_entries.async_update_entry(ac_entry, options={CONF_ENABLE_CONTROL: True})
+    coordinator = await setup(hass, ac_entry)
+    action = AsyncMock(side_effect=getattr(api_module, error_name)("Rejected"))
+    with patch.object(type(ac_entry), "async_start_reauth") as reauth:
+        with pytest.raises(HomeAssistantError) as error:
+            await coordinator.async_control(action)
+    assert error.value.translation_key == translation_key
+    reauth.assert_not_called()

@@ -6,6 +6,7 @@ from typing import Any
 
 import probatio
 from homeassistant.config_entries import (
+    SOURCE_REAUTH,
     ConfigEntry,
     ConfigEntryState,
     ConfigFlow,
@@ -19,11 +20,13 @@ from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
 
 from .api import (
+    Ac100AccountLockedError,
     Ac100Api,
     Ac100AuthError,
     Ac100ConnectionError,
     Ac100Error,
     Ac100SessionBusyError,
+    Ac100SessionExpiredError,
     normalize_host,
 )
 from .const import CONF_ENABLE_CONTROL, DEFAULT_ENABLE_CONTROL, DOMAIN
@@ -89,6 +92,10 @@ class Ac100ConfigFlow(ConfigFlow, domain=DOMAIN):
             return await async_validate_input(self.hass, data)
         except Ac100SessionBusyError:
             errors["base"] = "session_busy"
+        except Ac100AccountLockedError:
+            errors["base"] = "account_locked"
+        except Ac100SessionExpiredError:
+            errors["base"] = "cannot_connect"
         except Ac100AuthError:
             errors["base"] = "invalid_auth"
         except Ac100ConnectionError:
@@ -128,7 +135,8 @@ class Ac100ConfigFlow(ConfigFlow, domain=DOMAIN):
             updated = True
             return result
         finally:
-            if unloaded and not updated:
+            # A reauth flow starts because the stored credentials were rejected; do not retry them.
+            if unloaded and not updated and self.source != SOURCE_REAUTH:
                 await self.hass.config_entries.async_setup(entry.entry_id)
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

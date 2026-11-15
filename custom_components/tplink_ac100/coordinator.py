@@ -15,10 +15,12 @@ from homeassistant.exceptions import (
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
+    Ac100AccountLockedError,
     Ac100Api,
     Ac100AuthError,
     Ac100Error,
     Ac100SessionBusyError,
+    Ac100SessionExpiredError,
     Ac100UnsafeLedError,
 )
 from .const import CONF_ENABLE_CONTROL, DOMAIN, UPDATE_INTERVAL
@@ -66,6 +68,12 @@ class Ac100Coordinator(DataUpdateCoordinator[Snapshot]):
             raise ConfigEntryNotReady(
                 "Another controller management session is active; sign out there or wait for expiry"
             ) from err
+        except Ac100AccountLockedError as err:
+            raise UpdateFailed("The controller account is temporarily locked") from err
+        except Ac100SessionExpiredError as err:
+            raise UpdateFailed(
+                "The controller session expired; retrying on the next update"
+            ) from err
         except Ac100AuthError as err:
             raise ConfigEntryAuthFailed("Controller authentication failed") from err
         except Ac100Error as err:
@@ -91,6 +99,14 @@ class Ac100Coordinator(DataUpdateCoordinator[Snapshot]):
         except Ac100UnsafeLedError as err:
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="led_wifi_sync_unsafe"
+            ) from err
+        except Ac100AccountLockedError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="account_locked"
+            ) from err
+        except Ac100SessionExpiredError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="session_expired"
             ) from err
         except Ac100AuthError as err:
             self.entry.async_start_reauth(self.hass)

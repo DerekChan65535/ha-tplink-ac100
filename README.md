@@ -85,10 +85,28 @@ Monitoring uses that session even when optional management controls are disabled
   interface, then re-enable the HA entry.
 - To change the connection address in HA, use the entry's **Reconfigure** flow; manual
   disabling is not required. Reconfigure and reauthentication temporarily unload only
-  that entry before validation. If validation fails, reaches a different controller,
-  or the flow is cancelled, the original entry is restored automatically.
+  that entry before validation. If a reconfigure fails, reaches a different controller,
+  or is cancelled, the original entry is restored automatically. A failed reauthentication
+  does not restore the entry, because its stored credentials were already rejected.
 - A **busy/session-in-use** error does not mean the password is wrong. Wait for the
   other session to sign out or expire, then retry. Do not force another administrator out.
+- A **locked account** message means the controller temporarily blocked sign-ins after too
+  many failed attempts. Wait until the lock ends. The integration does not retry in a loop.
+
+### Session timeout
+
+The controller ends sessions after its **Web session timeout** (5-60 minutes, 6 minutes on the
+tested unit). In testing, polling every 60 seconds kept one session open for longer than that
+timeout, but the controller can invalidate a session at other times too (for example after a
+long pause). The integration notices the rejected token, signs in again once, and repeats the
+same read. This is normal and needs no action. Turn on the **Debug logging** switch to see the
+short `session expired; reauthenticating once` log lines.
+
+A management action (LED, reboot) that meets an expired session is **not retried
+automatically**: the integration cannot prove that the rejected command had no effect, and an
+LED command must pass its safety check again. Check the current state and run the action again.
+If a renewed session is rejected as well, that update fails and the next poll tries again; it is
+not reported as a wrong password.
 
 Configuration validation releases its temporary session after checking the connection.
 Entry unload/reload releases only the session token owned by that entry; the integration

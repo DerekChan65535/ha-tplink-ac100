@@ -14,12 +14,14 @@ import aiohttp
 import pytest
 
 from custom_components.tplink_ac100.api import (
+    Ac100AccountLockedError,
     Ac100Api,
     Ac100AuthError,
     Ac100ConnectionError,
     Ac100Error,
     Ac100ProtocolError,
     Ac100SessionBusyError,
+    Ac100SessionExpiredError,
     Ac100UnsafeLedError,
     normalize_host,
 )
@@ -441,13 +443,88 @@ async def test_expired_session_reauthenticates_once(expired):
     )
 
 
-async def test_still_expired_after_reauthentication_does_not_loop():
+async def test_read_still_expired_after_reauthentication_is_not_a_credentials_failure():
     expired = Response({"error_code": -40401, "data": {"code": -40401}}, status=401)
     api, session = make_api(expired, metadata(), logged_in(), expired)
     api._stok = "old-session"
-    with pytest.raises(Ac100AuthError):
-        await api.async_reboot_controller()
+    with pytest.raises(Ac100SessionExpiredError) as exc:
+        await api.async_get_ap_led_wifi_sync("7")
+    assert not isinstance(exc.value, Ac100AuthError)
     assert session.post.call_count == 4
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda api: api.async_reboot_controller(),
+        lambda api: api.async_reboot_ap("0"),
+    ],
+)
+async def test_expired_session_never_replays_a_management_command(call):
+    expired = Response({"error_code": -40401, "data": {"code": -40401}}, status=401)
+    api, session = make_api(expired)
+    api._stok = "old-session"
+    with pytest.raises(Ac100SessionExpiredError):
+        await call(api)
+    assert session.post.call_count == 1
+    assert api._stok is None
+
+
+async def test_led_write_expiry_after_the_safety_read_is_not_replayed():
+    expired = Response({"error_code": -40401, "data": {"code": -40401}}, status=401)
+    api, session = make_api(led_config("7", "off"), expired)
+    api._stok = "old-session"
+    with pytest.raises(Ac100SessionExpiredError):
+        await api.async_set_ap_led("7", True)
+    methods = [call.kwargs["json"]["method"] for call in session.post.call_args_list]
+    assert methods == ["get", "set"]
+    assert api._stok is None
+
+
+async def test_next_request_signs_in_again_after_an_unreplayed_write_expiry():
+    expired = Response({"error_code": -40401, "data": {"code": -40401}}, status=401)
+    api, session = make_api(
+        expired, metadata(), logged_in(), led_config("7", "off"), Response({"error_code": 0})
+    )
+    api._stok = "old-session"
+    with pytest.raises(Ac100SessionExpiredError):
+        await api.async_reboot_controller()
+    await api.async_set_ap_led("7", True)
+    methods = [call.kwargs["json"]["method"] for call in session.post.call_args_list]
+    assert methods == ["do", "do", "do", "get", "set"]
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"error_code": -40404},
+        {"error_code": -40401, "data": {"code": -40404}},
+    ],
+)
+async def test_locked_account_is_reported_without_retry(result):
+    api, session = make_api(Response(result, status=401))
+    api._stok = "synthetic-session"
+    with pytest.raises(Ac100AccountLockedError) as exc:
+        await api.async_reboot_controller()
+    assert not isinstance(exc.value, Ac100AuthError)
+    assert session.post.call_count == 1
+
+
+async def test_locked_account_on_login_is_not_a_bad_password():
+    api, session = make_api(
+        metadata(), Response({"error_code": -40401, "data": {"code": -40404}}, status=401)
+    )
+    with pytest.raises(Ac100AccountLockedError):
+        await api.async_login()
+    assert session.post.call_count == 2
+
+
+async def test_login_is_idempotent_while_a_token_is_held():
+    api, session = make_api()
+    api._stok = "held-session"
+    await api.async_login()
+    assert api._stok == "held-session"
+    assert session.post.call_count == 0
 
 
 @pytest.mark.parametrize(
@@ -455,8 +532,8 @@ async def test_still_expired_after_reauthentication_does_not_loop():
     [
         Response(status=401),
         Response(text="not JSON", status=401),
-        Response({"error_code": -40401, "data": {"code": -40404}}, status=401),
-        Response({"error_code": -40401, "data": {"code": -57704}}, status=401),
+        Response({"error_code": -40401, "data": {"code": -40402}}, status=401),
+        Response({"error_code": -40401, "data": {"code": -40403}}, status=401),
         Response({"error_code": -40100}, status=401),
         Response({"error_code": -40401}, status=403),
     ],
@@ -771,7 +848,10 @@ async def test_led_control_requires_exactly_one_matching_ap_config_row(rows):
             Ac100ConnectionError,
         ),
         (Response(text="private-config-error"), Ac100ProtocolError),
-        (Response({"error_code": -40401, "data": {"code": -40404}}, status=401), Ac100AuthError),
+        (
+            Response({"error_code": -40401, "data": {"code": -40404}}, status=401),
+            Ac100AccountLockedError,
+        ),
         (
             Response({"error_code": -40100, "data": {"code": -57704}}, status=401),
             Ac100SessionBusyError,

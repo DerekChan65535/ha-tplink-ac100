@@ -17,11 +17,13 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.tplink_ac100.api import (
+    Ac100AccountLockedError,
     Ac100AuthError,
     Ac100ConnectionError,
     Ac100Error,
     Ac100ProtocolError,
     Ac100SessionBusyError,
+    Ac100SessionExpiredError,
 )
 from custom_components.tplink_ac100.config_flow import async_validate_input
 from custom_components.tplink_ac100.const import CONF_ENABLE_CONTROL, DOMAIN
@@ -405,7 +407,7 @@ async def test_loaded_validation_failure_restores_original(
     error: Exception,
     expected: str,
 ) -> None:
-    """A failed validation must not leave the controller's normal polling stopped."""
+    """A failed reconfigure restores polling; a failed reauth never retries rejected credentials."""
     entry, events, unload_entry, setup_entry = loaded_flow_entry
     flow_api.async_get_snapshot.side_effect = error
     changes = (
@@ -421,17 +423,21 @@ async def test_loaded_validation_failure_restores_original(
     result = await hass.config_entries.flow.async_configure(result["flow_id"], changes)
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": expected}
-    assert events == ["unload", "validate", "logout", "restore"]
-    assert entry.state is ConfigEntryState.LOADED
     assert entry.data == DATA
-    setup_entry.assert_awaited_once_with(entry.entry_id)
+    if source == SOURCE_REAUTH:
+        assert events == ["unload", "validate", "logout"]
+        setup_entry.assert_not_awaited()
+    else:
+        assert events == ["unload", "validate", "logout", "restore"]
+        assert entry.state is ConfigEntryState.LOADED
+        setup_entry.assert_awaited_once_with(entry.entry_id)
 
 
 @pytest.mark.parametrize("source", [SOURCE_RECONFIGURE, SOURCE_REAUTH])
 async def test_loaded_wrong_device_restores_original(
     hass: HomeAssistant, flow_api: MagicMock, loaded_flow_entry, source: str
 ) -> None:
-    """Reject a different MAC and recover the original loaded entry."""
+    """Reject a different MAC; only a reconfigure recovers the original loaded entry."""
     entry, events, unload_entry, setup_entry = loaded_flow_entry
     flow_api.async_get_snapshot.return_value = replace(
         SNAPSHOT, controller=replace(SNAPSHOT.controller, mac="02:00:00:00:00:02")
@@ -449,17 +455,21 @@ async def test_loaded_wrong_device_restores_original(
     result = await hass.config_entries.flow.async_configure(result["flow_id"], changes)
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "wrong_device"
-    assert events == ["unload", "validate", "logout", "restore"]
     assert entry.data == DATA
-    assert entry.state is ConfigEntryState.LOADED
-    setup_entry.assert_awaited_once_with(entry.entry_id)
+    if source == SOURCE_REAUTH:
+        assert events == ["unload", "validate", "logout"]
+        setup_entry.assert_not_awaited()
+    else:
+        assert events == ["unload", "validate", "logout", "restore"]
+        assert entry.state is ConfigEntryState.LOADED
+        setup_entry.assert_awaited_once_with(entry.entry_id)
 
 
 @pytest.mark.parametrize("source", [SOURCE_RECONFIGURE, SOURCE_REAUTH])
 async def test_loaded_cancelled_validation_restores_original(
     hass: HomeAssistant, flow_api: MagicMock, loaded_flow_entry, source: str
 ) -> None:
-    """Propagate cancellation only after temporary logout and original entry setup."""
+    """Propagate cancellation after the temporary logout; restore only for a reconfigure."""
     entry, events, unload_entry, setup_entry = loaded_flow_entry
     flow_api.async_get_snapshot.side_effect = asyncio.CancelledError
     changes = (
@@ -474,10 +484,14 @@ async def test_loaded_cancelled_validation_restores_original(
     )
     with pytest.raises(asyncio.CancelledError):
         await hass.config_entries.flow.async_configure(result["flow_id"], changes)
-    assert events == ["unload", "validate", "logout", "restore"]
     assert entry.data == DATA
-    assert entry.state is ConfigEntryState.LOADED
-    setup_entry.assert_awaited_once_with(entry.entry_id)
+    if source == SOURCE_REAUTH:
+        assert events == ["unload", "validate", "logout"]
+        setup_entry.assert_not_awaited()
+    else:
+        assert events == ["unload", "validate", "logout", "restore"]
+        assert entry.state is ConfigEntryState.LOADED
+        setup_entry.assert_awaited_once_with(entry.entry_id)
 
 
 async def test_loaded_unload_failure_does_not_validate(
@@ -499,3 +513,21 @@ async def test_loaded_unload_failure_does_not_validate(
     assert entry.data == DATA
     flow_api.async_login.assert_not_awaited()
     setup_entry.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (Ac100AccountLockedError("Locked"), "account_locked"),
+        (Ac100SessionExpiredError("Rejected"), "cannot_connect"),
+    ],
+)
+async def test_user_flow_reports_lock_and_expiry_without_calling_it_a_bad_password(
+    hass: HomeAssistant, flow_api: MagicMock, error: Exception, expected: str
+) -> None:
+    flow_api.async_login.side_effect = error
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], DATA)
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": expected}
+    flow_api.async_logout.assert_awaited()

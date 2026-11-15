@@ -40,8 +40,16 @@ class Ac100SessionBusyError(Ac100AuthError):
     """Another administrator holds the controller's read-write session."""
 
 
-class _SessionExpiredError(Ac100AuthError):
-    """A request was definitively rejected because its session is invalid."""
+class Ac100SessionExpiredError(Ac100Error):
+    """The controller rejected the session token as expired or invalid.
+
+    This is not a credentials failure: a fresh login may succeed. It does not prove that a
+    rejected management command had no side effect, so such commands are never replayed.
+    """
+
+
+class Ac100AccountLockedError(Ac100Error):
+    """The controller temporarily locked the account after too many failed sign-ins."""
 
 
 class Ac100ConnectionError(Ac100Error):
@@ -261,11 +269,14 @@ class Ac100Api:
         if code == -57704 or subcode == -57704:
             _LOGGER.debug("Controller authentication blocked by another active session")
             raise Ac100SessionBusyError("Another administrator session is active")
+        if code == -40404 or subcode == -40404:
+            _LOGGER.debug("Controller account is temporarily locked")
+            raise Ac100AccountLockedError("The controller account is temporarily locked")
         if code == -40401:
             if path != "/" and status != 403 and (subcode is None or subcode == -40401):
-                raise _SessionExpiredError("Controller session has expired")
+                raise Ac100SessionExpiredError("Controller session has expired")
             raise Ac100AuthError("Controller authentication was rejected")
-        if status in {401, 403} or code in {-40100, -40404, -57703, -57704, -57705}:
+        if status in {401, 403} or code in {-40100, -57703, -57704, -57705}:
             raise Ac100AuthError("Controller authentication or access was rejected")
         if code != 0:
             raise Ac100ProtocolError("Controller rejected the request")
@@ -309,7 +320,8 @@ class Ac100Api:
         """Authenticate without taking over or logging out another administrator."""
         async with self._lock:
             self._ensure_open()
-            await self._login()
+            if self._stok is None:
+                await self._login()
 
     async def async_logout(self) -> None:
         """Retire this logical client and release only its token, without replaying a request."""
@@ -324,7 +336,7 @@ class Ac100Api:
                     f"/stok={quote(self._stok, safe='')}/ds",
                     {"method": "do", "system": {"logout": None}},
                 )
-            except _SessionExpiredError:
+            except Ac100SessionExpiredError:
                 return
             finally:
                 self._stok = None
@@ -337,9 +349,12 @@ class Ac100Api:
         self._ensure_open()
         try:
             return await self._post(f"/stok={quote(self._stok, safe='')}/ds", data)
-        except _SessionExpiredError:
-            _LOGGER.debug("Controller session expired; reauthenticating once")
+        except Ac100SessionExpiredError:
             self._stok = None
+            if data.get("method") != "get":
+                _LOGGER.debug("Controller session expired during a write; not replayed")
+                raise
+            _LOGGER.debug("Controller session expired; reauthenticating once")
             await self._login()
             self._ensure_open()
             return await self._post(f"/stok={quote(self._stok, safe='')}/ds", data)

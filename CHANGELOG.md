@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- A management command (LED, reboot) that is rejected because its session expired is no longer
+  replayed automatically. Reads still renew the session once and repeat.
+- A session that is rejected again right after a successful sign-in no longer starts a password
+  reauthentication; the next update retries.
+- A failed reauthentication no longer retries the stored credentials that were already rejected.
+- A temporarily locked account now has its own message instead of "invalid authentication".
+- Calling the sign-in method while a session token is held no longer discards that token.
+
+### Removed
+
+- The zh-Hans translation and the Chinese README. The Home Assistant UI and the codebase are
+  English only.
+
 ## [0.1.0] - 2026-11-15
 
 ### Initial scope

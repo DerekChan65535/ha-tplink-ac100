@@ -43,7 +43,8 @@
       "cannot_connect": "Could not connect to the controller.",
       "unsupported_device": "This device is not a supported TL-AC100 controller.",
       "unknown": "The controller returned an unsupported response or an unexpected error occurred.",
-      "session_busy": "This account already has another management session. Sign out in the other management client or wait for that session to expire, then try again. The integration will not force a takeover."
+      "session_busy": "This account already has another management session. Sign out in the other management client or wait for that session to expire, then try again. The integration will not force a takeover.",
+      "account_locked": "The controller has temporarily locked this account after too many failed sign-in attempts. Wait until the lock ends, then try again."
     },
     "abort": {
       "already_configured": "This controller is already configured.",
@@ -124,6 +125,12 @@
     },
     "led_wifi_sync_unsafe": {
       "message": "LED control was blocked because LED/WiFi synchronization could not be confirmed off. This prevents a possible WiFi change. The integration does not change the synchronization setting."
+    },
+    "account_locked": {
+      "message": "The controller has temporarily locked this account after too many failed sign-in attempts. Wait until the lock ends, then try again."
+    },
+    "session_expired": {
+      "message": "The controller session expired and the action was not retried automatically. Check the current state and run the action again if it is still needed."
     }
   }
 }
