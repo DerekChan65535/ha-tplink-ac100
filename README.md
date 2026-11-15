@@ -5,7 +5,7 @@ controller's local management interface and exposes native Home Assistant device
 entities, and actions. No embedded web panel, cloud account, MQTT bridge, or separate
 service is required.
 
-[简体中文](README.zh-CN.md) · [Releases](https://github.com/DerekChan65535/ha-tplink-ac100/releases) · [Report an issue](https://github.com/DerekChan65535/ha-tplink-ac100/issues) · [Security](SECURITY.md)
+[Releases](https://github.com/DerekChan65535/ha-tplink-ac100/releases) · [Report an issue](https://github.com/DerekChan65535/ha-tplink-ac100/issues) · [Security](SECURITY.md)
 
 > **Early release.** This is not an official TP-LINK or Home Assistant integration.
 > Read-only polling has been checked on the hardware/firmware listed below.
@@ -41,8 +41,8 @@ enable and expose to dashboards, history, automations, or external services.
 
 ## AP status and LED safety
 
-Only `link_status=1` counts as an online AP. `link_status=0` means **connecting**
-(“接入中”), not online or standby-online, and is excluded from the online count.
+Only `link_status=1` counts as an online AP. `link_status=0` means **connecting**,
+not online or standby-online, and is excluded from the online count.
 
 LED readback and write values differ on the tested protocol:
 

@@ -18,7 +18,7 @@
 - Correct LED protocol mapping: read `1` on / `2` off / `0` unknown; write `1` on / `0` off.
   Each LED write requires a fresh confirmation that `led_wifi_sync` is explicitly off;
   on or unknown is rejected. The integration does not change linkage or wireless settings.
-- Count only AP `link_status=1` as online; `0` means connecting (接入中), not standby-online.
+- Count only AP `link_status=1` as online; `0` means connecting, not standby-online.
 - Session-safe setup and cleanup: configuration validation releases its temporary
   login, and entry unload/reload releases only its own token. No `force=1` login or
   intentional eviction of other administrators.

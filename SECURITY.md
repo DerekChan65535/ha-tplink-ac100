@@ -1,4 +1,4 @@
-# Security policy / 安全策略
+# Security policy
 
 ## Supported versions
 
@@ -129,40 +129,3 @@ a change that was already applied to the controller.
 3. Use a private advisory for coordinated fixes. Publish affected and fixed version
    ranges when it is safe to disclose; do not silently replace a published release/tag.
 4. Recheck logs, diagnostics, fixtures, and backups for the same exposure.
-
-## 中文摘要
-
-安全修复以最新稳定版为目标，旧版不承诺回移。首个稳定版前均属实验状态。
-本仓库已启用 GitHub 私密漏洞报告，请优先使用上面的私密入口。若入口不可用，
-公开 Issue **只能请求私密联络方式**，不要写漏洞细节、凭据或利用步骤。本志愿项目不承诺固定响应时限。
-
-集成在 HA 进程内运行；HACS 收录和 CI 通过都不是安全审计。控制器应在受信管理网内，
-不要开放公网管理端口。HTTP 接口本身不加密，HA 配置项与备份可能保存密码，需控制读取权限。
-日志、诊断、抓包和 Issue 都不得含密码、cookie、会话密钥或真实客户端记录。
-
-原生 **Debug level logging** 诊断开关独立于设备管理，默认关闭且不持久化，HA 重启后关闭。
-它只调整 `custom_components.tplink_ac100` 及其子 logger：开启时保存原级别并统一设为 `DEBUG`；
-关闭时恢复原非 `DEBUG` 级别，本命名空间内仍为 `DEBUG` 的 logger 压至 `INFO`，
-避免显式子 logger 级别绕过关闭状态。控制器离线也能切换，不调用设备 API，不改变 root 或其他集成 logger。
-日志白名单仅允许固定操作/阶段、成功/失败、固定错误类别或异常类名、耗时与无标识的汇总数量；
-不得输出任意异常文本、设备返回字符串、原始请求/响应、认证数据、密码/哈希、cookie/token、
-含凭据的 URL 或设备/客户端名称、MAC/IP、SSID。禁止增加 raw debug 响应转储。
-这不是全系统日志脱敏，分享导出日志前仍需检查，排查后关闭调试开关。
-
-实测固件只允许单一管理会话，只读监控也会占用登录。添加前退出其他 AC 管理端；
-需要使用 AC 网页时，必须先在 HA **禁用条目，不是删除**，网页用完退出后再启用。
-在 HA 中通过重新配置修改连接地址不必手动先禁用；重新配置/重新认证验证前仅临时卸载本条目，
-验证失败、连接到错误设备或取消时自动恢复原条目。
-配置验证结束释放临时会话，卸载/reload 只释放自己 token，不使用 `force=1` 或踢其他管理员。
-忙碌/会话占用不等于密码错误，等待其他会话退出或超时即可重试。
-
-管理默认关闭，重启按钮默认禁用。LED 读取 `1` 开/`2` 关/`0` 未知，写入则为 `1` 开/`0` 关；
-初测发现并修正此差异。修复后已通过原生 HA 开关在一台 AP 上关闭、开启并读回，已恢复原状态；
-其他 AP 型号和固件未测试。重启未在真机执行，不要用生产 Wi-Fi 试重启。每次 LED 写前必须确认
-`led_wifi_sync` 明确关闭，开启、缺失或未知时拒绝；不修改联动选项或无线设置，不能无条件承诺 LED 不影响 Wi-Fi。
-仅请求 LED 操作时，按 `entry_id` 精确过滤读取一条 AP 配置；默认只读轮询不读 `apmng_set`。
-设备没有字段投影，返回行可能含 AP 管理字段，不能声称完全不读取；仅在 HA 内存中临时处理，
-只提取 `led_wifi_sync` 后丢弃原始行，禁止日志、诊断、磁盘或缓存保留。
-`link_status=0` 是接入中而非在线，仅 `1` 计为在线 AP。SSID 修改首版不提供。
-写超时不要盲目重试；恢复 HA 备份也不能撤销已下发到控制器的改变。发生泄漏先撤销/轮换凭据，
-再处理历史与缓存，单纯删除当前文件并不能补救。
