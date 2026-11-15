@@ -10,6 +10,7 @@ from .api import Ac100Api
 from .const import DOMAIN, PLATFORMS
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
 from .device_info import ap_device_info, controller_device_info
+from .wireless_service import wireless_service_device_key
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: Ac100ConfigEntry) -> bool:
@@ -51,14 +52,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: Ac100ConfigEntry) -> boo
 async def async_remove_config_entry_device(
     hass: HomeAssistant, entry: Ac100ConfigEntry, device: dr.DeviceEntry
 ) -> bool:
-    """Allow deleting only devices that the controller no longer reports."""
+    """Allow deleting only devices that the controller no longer reports.
+
+    A wireless network counts as reported while the latest SSID read lists it.
+    """
     if entry.state is not ConfigEntryState.LOADED:
         return False
     data = entry.runtime_data.data
+    mac = data.controller.mac
+    services = data.monitoring.wireless_services if data.monitoring is not None else None
     current = {
-        data.controller.mac,
+        mac,
         *(ap.mac for ap in data.aps),
         *(client.mac for client in data.clients),
+        *(wireless_service_device_key(mac, item.service_id) for item in services or ()),
     }
     addresses = {value for domain, value in device.identifiers if domain == DOMAIN} | {
         value for kind, value in device.connections if kind == dr.CONNECTION_NETWORK_MAC

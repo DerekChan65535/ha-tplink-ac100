@@ -117,6 +117,12 @@ settings section `apmng_set.settings` is read only while a settings entity is en
 and only allow-listed fields are kept.) A missing/ambiguous safety result must block the
 LED write, not trigger a change to the linkage setting.
 
+The optional **Monitor wireless networks** setting reads the wireless service table
+`apmng_wserv.wlan_serv`, which always includes Wi-Fi and RADIUS keys. Only an allow-list of
+non-secret fields leaves the API layer; the keys are never stored, logged, shown or included
+in diagnostics. SSID writes send only the changed field and never echo a key. When the
+option is off, the table is not requested.
+
 Do not exercise reboots on production Wi-Fi to validate this project. Do not attach
 management actions to unattended automations before independently checking their
 scope and recovery plan. A timeout does not prove a command failed; blind retries of

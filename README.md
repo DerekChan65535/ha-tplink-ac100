@@ -20,12 +20,13 @@ service is required.
 | --- | --- |
 | Home Assistant | Requires **2026.11.1 or newer**; development/test target: 2026.11.1. Older versions are not supported. |
 | Controller | Live-checked: **TL-AC100 hardware 5.0**, firmware **1.0.5 Build 250814 Rel.82234n** (read-only polling in native HA, one AP LED cycle). Other versions are unverified. |
-| Monitoring | Controller, managed AP, and connected-client state as native HA entities. |
-| AP LED | Guarded optional control; requires LED/Wi-Fi sync explicitly off. Live-tested through native HA on one TL-XAP1506GC-PoE/DC AP (off, on, restore). Other AP models and firmware are unverified. |
+| Monitoring | Controller, AP, radio, port, interface, firmware and client state; controller and radio settings as disabled-by-default readings. |
+| Wireless networks (SSIDs) | Optional device per SSID; off by default because the controller returns Wi-Fi keys with the SSID list (they are dropped in memory). |
+| Controls | Optional, off by default: AP LED, AP radio, SSID enable/broadcast/isolation/IGMP, band steering, load balancing, broadcast storm suppression, multicast, controller name, Save configuration. Each write was live-tested with restore on the hardware above. |
 | AP/controller reboot | Optional, disruptive control; **not tested on live hardware**. |
-| SSID/wireless configuration changes | Not included in the initial release. |
+| Not included | Firmware installation, factory reset, configuration/certificate files, accounts, portals and authentication lists, network interfaces, DHCP and routing changes, wireless network mode. See [Not included](#not-included). |
 | Debug level logging | Native diagnostic switch; off by default, independent of device management. |
-| Default polling | Core telemetry **60 seconds**; optional monitoring **5 minutes**; safe scalar settings **15 minutes** in the unreleased expansion. |
+| Default polling | Core telemetry **60 seconds**; status **5 minutes**; settings **15 minutes**, only while a settings entity is enabled. |
 
 The minimum HA version is intentional: this integration uses current HA APIs, without
 compatibility shims for older releases. A newer HA release or controller firmware may
@@ -39,30 +40,24 @@ health check. Software tests and interface evidence do not establish hardware sa
 Client names, addresses, and presence can be sensitive. Review which entities you
 enable and expose to dashboards, history, automations, or external services.
 
-## Monitoring expansion (unreleased)
+## What it shows
 
-The development branch adds native readings, not an embedded controller web panel:
+Native readings, not an embedded controller web panel:
 
-- Controller CPU usage as the average across cores, as the web UI shows it. Per-core
-  sensors are disabled by default on new installations; existing ones are unchanged.
-- AP IP addresses, per-radio channel, channel load and connected-client sensors.
-- Controller/AP **Last restart** values rendered as uptime by Home Assistant.
-  The original **Uptime (seconds)** entities keep their unique IDs, numeric seconds,
-  and statistics. They are disabled by default only on new installations; existing
-  entity enable states and entity IDs are not rewritten.
-- Configuration-not-saved and AP alarm flags, physical-port links and negotiated
-  speeds, and interface traffic rates and byte counters.
-- Controller/AP firmware availability using the native Update platform.
-  **Installation is not supported**: firmware installation can interrupt service
-  and recovery has not been verified. Viewing availability does not start an upgrade.
-- 70 credential-free settings (roaming, band steering, load balancing, radio
-  optimization, multicast, time, session limits and AP management) as diagnostic
-  readings, disabled by default. These are readings, not switches that modify settings.
-- 21 configured settings per AP radio (radio mode, channel width, configured channel,
-  transmit power level, client limit, beacon, DTIM, RTS and fragmentation values, WMM,
-  weak-signal rules and others) as diagnostic readings on each AP, disabled by default.
-  They come from the controller's radio table, read together with the other settings. An AP
-  that is not online, or a radio missing from the table, shows as unavailable.
+- Controller: CPU usage (the average across cores, as the web UI shows it; per-core sensors
+  are disabled by default on new installations), memory, last restart, AP and client counts,
+  unsaved-configuration and AP alarm flags, physical-port links and speeds, interface traffic
+  rates and byte counters, and firmware availability.
+- APs: connectivity, IP address, last restart, clients, firmware availability, and per radio
+  the channel, channel load and clients.
+- Settings, disabled by default: 70 controller settings (roaming, band steering, load
+  balancing, radio optimization, multicast, time, session limits and AP management) and 21
+  configured values per AP radio (mode, channel width, channel, power level 1-10, client
+  limit, beacon/DTIM/RTS/fragmentation values, WMM, weak-signal rules and others).
+- Firmware uses the native Update platform. **Installation is not supported**: firmware
+  installation can interrupt service and recovery has not been verified.
+- The original **Uptime (seconds)** entities keep their unique IDs, numeric seconds and
+  statistics. They are disabled by default only on new installations.
 
 Polling shares the existing single management session. The core poll remains at
 60 seconds. Status, port, interface and firmware reads run every 5 minutes. Settings
@@ -76,15 +71,46 @@ than is shown: the firmware announcement includes a download URL and release not
 the cloud status includes binding details, the AP-management and reporting settings
 include proxy and server addresses, and the radio table includes AP names and capability
 limits. Those extra fields are dropped in memory and never stored, logged or included in
-diagnostics. Tables that hold secrets are **not requested**:
-the wireless service table (Wi-Fi/RADIUS keys, even when the web page only needs SSID
-names), the AP table with per-AP credentials, mesh backhaul settings, account and
-portal records, and certificate/configuration files.
+diagnostics. Tables that hold secrets are **not requested**: the AP table with per-AP
+credentials, mesh backhaul settings, account and portal records, certificate/configuration
+files, and the wireless service table (Wi-Fi/RADIUS keys) unless the wireless network
+option below is on.
 
-The controller uses an explicit **Save configuration** step for persistence.
-The new unsaved-configuration flag is read-only: nothing is saved automatically.
-A save action would persist *all* pending controller changes, not just HA changes,
-so it requires separate verification before being offered as a control.
+### Wireless networks (optional)
+
+Turn on **Monitor wireless networks** in the integration options to get one device per SSID
+with connected clients, enabled and hidden state, client isolation, security type and default
+VLAN. The controller returns the Wi-Fi and RADIUS keys together with the SSID list and cannot
+leave them out. With this option on, that table is read every 5 minutes; the keys are dropped
+in memory and are never stored, logged, shown or included in diagnostics. With the option off,
+the table is not requested.
+
+## Controls
+
+**Management is off by default.** With **Enable device control** on, these controls are added.
+Except for the AP LED switches they are created disabled; enable only the ones you need.
+
+| Control | Scope | Effect |
+| --- | --- | --- |
+| AP LED | One AP | Indicator only, with the LED/Wi-Fi synchronization check below. |
+| AP radio | One AP radio | Off disconnects the clients of that radio. |
+| SSID enabled, broadcast, client isolation, IGMP snooping/querier | One SSID (needs the wireless network option) | Off disconnects that SSID's clients; hiding stops new clients from seeing it. |
+| Band steering, load balancing, broadcast storm suppression, multicast | All APs | Changes how clients are steered, admitted or served multicast. |
+| Controller name | Label | No effect on clients. |
+| Save configuration | Controller | Stores the running configuration so it survives a controller restart. |
+| Reboot | One AP or the controller | Interrupts service; **not tested on live hardware**. |
+
+Each change sends the controller's own web page form once, built from a fresh read, and is
+never repeated automatically (a timeout does not prove that a write failed). Changes stay in
+the controller's running configuration, as in the web UI, until **Save configuration** is
+pressed. Saving also stores changes made outside Home Assistant, so check the **Configuration
+not saved** sensor first. Nothing is saved automatically.
+
+Every write listed above except reboot was live-tested on the hardware listed at the top:
+applied, read back, restored to the original value and compared with the original
+configuration (no other field changed). The SSID tests used a designated test SSID.
+
+## Device pages
 
 Client trackers remain disabled by default and no longer create one MAC-only device
 each. On upgrade, a client device is removed only when all of these hold: its tracker
@@ -100,11 +126,24 @@ links to the AC website for troubleshooting: disable the HA entry before signing
 An AP or client device that the controller no longer reports can be deleted from its
 device page; the controller and currently reported devices cannot.
 
-This expansion is being validated. It does **not** claim complete web-UI parity.
-Wireless/network changes, account and portal CRUD, file transfers, factory reset,
-and firmware installation need individual safety and recovery decisions. Nothing
-in this section means the published 0.1.0 archive or a production installation
-has already been updated.
+## Not included
+
+These web UI functions are not offered, because they interrupt service, cannot be safely
+undone, or would expose credentials:
+
+- Firmware installation (controller and APs), factory reset, reboot schedules.
+- Backup/restore of configuration and certificate files, log export, packet capture.
+- Accounts, administrator roles, password changes, portal, 802.1X, MAC authentication,
+  RADIUS/LDAP and user lists.
+- Adding, deleting or editing SSIDs beyond the switches above, including names, passwords
+  and security, VLAN pools and radio binding.
+- Network interfaces, DHCP servers, static routes, DNS and port settings, which can cut off
+  management access.
+- Wireless network mode and immediate radio optimization ("tune now"): they reconfigure every
+  AP radio at once.
+- Mesh, cloud management and time settings, and radio settings other than on/off.
+
+Read-only values of many of these remain available as disabled-by-default settings readings.
 
 ## AP status and LED safety
 

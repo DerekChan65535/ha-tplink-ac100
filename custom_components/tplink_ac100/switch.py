@@ -1,4 +1,4 @@
-"""Local debug logging and explicitly enabled access-point LED controls."""
+"""Debug logging and the opt-in controls: AP LEDs, AP radios and controller settings."""
 
 from typing import Any
 
@@ -10,13 +10,17 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CONF_ENABLE_CONTROL, DOMAIN
-from .coordinator import Ac100ConfigEntry, Ac100Coordinator
+from .control_entity import Ac100SettingControl
+from .coordinator import CONFIGURATION_CONTEXT, Ac100ConfigEntry, Ac100Coordinator
 from .debug_logging import (
     SIGNAL_DEBUG_LOGGING_CHANGED,
     Ac100DebugLogging,
     async_get_debug_logging,
 )
-from .entity import Ac100Entity
+from .entity import Ac100Entity, band_label
+from .management import writable_fields
+from .models import ApRadio
+from .wireless_service import add_wireless_service_switches
 
 
 async def async_setup_entry(
@@ -26,7 +30,12 @@ async def async_setup_entry(
     async_add_entities([Ac100DebugLoggingSwitch(coordinator, async_get_debug_logging(hass))])
     if not entry.options.get(CONF_ENABLE_CONTROL, False):
         return
+    add_wireless_service_switches(entry, async_add_entities)
+    async_add_entities(
+        Ac100SettingSwitch(coordinator, field) for field in writable_fields("switch")
+    )
     known: set[str] = set()
+    known_radios: set[tuple[str, str]] = set()
 
     @callback
     def add_switches() -> None:
@@ -36,8 +45,21 @@ async def async_setup_entry(
         known.update(ap.mac for ap in aps)
         async_add_entities(Ac100LedSwitch(coordinator, ap.mac) for ap in aps)
 
+    @callback
+    def add_radio_switches() -> None:
+        entities = []
+        for ap in coordinator.data.aps:
+            for radio in ap.radios:
+                if radio.unit and (ap.mac, radio.unit) not in known_radios:
+                    known_radios.add((ap.mac, radio.unit))
+                    entities.append(Ac100RadioSwitch(coordinator, ap.mac, radio))
+        if entities:
+            async_add_entities(entities)
+
     add_switches()
     entry.async_on_unload(coordinator.async_add_listener(add_switches))
+    add_radio_switches()
+    entry.async_on_unload(coordinator.async_add_listener(add_radio_switches))
 
 
 class Ac100DebugLoggingSwitch(Ac100Entity, SwitchEntity):
@@ -109,6 +131,89 @@ class Ac100LedSwitch(Ac100Entity, SwitchEntity):
                     translation_domain=DOMAIN, translation_key="control_unavailable"
                 )
             await self.coordinator.api.async_set_ap_led(ap.entry_id, enabled)
+
+        await self.coordinator.async_control(action)
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._async_set(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._async_set(False)
+
+
+class Ac100SettingSwitch(Ac100SettingControl, SwitchEntity):
+    """An on/off setting of the whole controller, such as band navigation."""
+
+    @property
+    def current(self) -> bool | None:
+        value = super().current
+        return value if isinstance(value, bool) else None
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.current
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._async_write(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._async_write(False)
+
+
+class Ac100RadioSwitch(Ac100Entity, SwitchEntity):
+    """Switch one radio of an AP on or off, as the controller's radio page does.
+
+    The state is the radio's configured state from the settings read, so it is unknown while
+    that read has no row for the radio or the AP is not online. Switching a radio off
+    disconnects the clients that use it.
+    """
+
+    _attr_translation_key = "radio_enabled"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: Ac100Coordinator, ap_mac: str, radio: ApRadio) -> None:
+        super().__init__(coordinator, f"radio_{radio.unit}_enabled_control", ap_mac)
+        self._radio_unit = radio.unit
+        self._attr_translation_placeholders = {"band": band_label(radio)}
+        # Only an enabled settings entity makes the coordinator read the settings.
+        self.coordinator_context = CONFIGURATION_CONTEXT
+
+    @property
+    def enabled(self) -> bool | None:
+        """The radio's configured state, or None while it is not known."""
+        configuration = self.coordinator.data.configuration
+        if (ap := self.access_point) is None or not ap.is_manageable or configuration is None:
+            return None
+        row = next(
+            (
+                radio
+                for radio in configuration.radios
+                if radio.ap_mac == self.ap_mac and radio.unit == self._radio_unit
+            ),
+            None,
+        )
+        value = None if row is None else row.values.get("enabled")
+        return value if isinstance(value, bool) else None
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.enabled is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.enabled
+
+    async def _async_set(self, enabled: bool) -> None:
+        async def action() -> None:
+            await self.coordinator.async_refresh()
+            if not self.available or (ap := self.access_point) is None:
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN, translation_key="control_unavailable"
+                )
+            await self.coordinator.api.async_set_radio_enabled(
+                ap.entry_id, self._radio_unit, enabled
+            )
 
         await self.coordinator.async_control(action)
 

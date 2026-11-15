@@ -148,7 +148,7 @@ async def test_opt_in_controls_and_safe_defaults(hass, ac_entry, ac_api, entity_
     await setup(hass, ac_entry)
     entities = er.async_entries_for_config_entry(entity_registry, ac_entry.entry_id)
     buttons = [entity for entity in entities if entity.domain == "button"]
-    assert len(buttons) == 2
+    assert len(buttons) == 3  # controller reboot, save configuration and the AP's reboot
     assert all(entity.disabled_by is er.RegistryEntryDisabler.INTEGRATION for entity in buttons)
     switch = next(
         entity

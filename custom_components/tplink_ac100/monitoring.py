@@ -61,12 +61,80 @@ class InterfaceTraffic:
 
 
 @dataclass(frozen=True, slots=True)
+class WirelessService:
+    """One wireless network (SSID), reduced to the fields that entities use.
+
+    ``service_id`` is the controller's ``serv_id``. It is the identity, because the name can be
+    edited. ``name`` is the SSID as the controller sends it. ``security`` is a state of
+    WIRELESS_SERVICE_SECURITY. ``vlan`` is the default VLAN (1-4094) of the network's automatic
+    radio binding; it is None when no single VLAN is set (the controller sends 0) or a VLAN pool
+    is used. A setting reported in an unknown form is None. The controller's SSID table also
+    holds Wi-Fi and RADIUS secrets; none of them is kept here.
+    """
+
+    service_id: str
+    name: str
+    enabled: bool | None = None
+    broadcast: bool | None = None
+    isolation: bool | None = None
+    security: str | None = None
+    igmp_snooping: bool | None = None
+    igmp_querier: bool | None = None
+    vlan: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class WirelessServiceFlag:
+    """An on/off setting of a wireless network, in the controller's own terms.
+
+    ``key`` is the ``WirelessService`` field. ``field`` is the controller's field in its SSID
+    table; ``on`` and ``off`` are the two tokens that field takes.
+    """
+
+    key: str
+    field: str
+    on: str
+    off: str
+
+    @property
+    def states(self) -> dict[str, bool]:
+        """The token of each state."""
+        return {self.on: True, self.off: False}
+
+
+# ``enable`` and the IGMP switches take on/off; ``ssidbrd`` (SSID broadcast, the inverse of the
+# page's "hide") and ``isolate`` take 1/0. The web UI's enable/disable buttons update ``enable``
+# and the IGMP switches alone, and a live test showed that a one-field update of the others is
+# applied too (research/LIVE_WRITE_VALIDATION.md).
+WIRELESS_SERVICE_FLAGS: tuple[WirelessServiceFlag, ...] = (
+    WirelessServiceFlag("enabled", "enable", "on", "off"),
+    WirelessServiceFlag("broadcast", "ssidbrd", "1", "0"),
+    WirelessServiceFlag("isolation", "isolate", "1", "0"),
+    WirelessServiceFlag("igmp_snooping", "igmp_snooping_switch", "on", "off"),
+    WirelessServiceFlag("igmp_querier", "igmp_query_switch", "on", "off"),
+)
+
+# The ``encryption`` options of the controller's wireless service page: 0 is shown as "---", 2 is
+# its WPA/WPA2-Enterprise (the only kind that the 802.1X page lists). The list has no 3; any
+# other token is unknown.
+WIRELESS_SERVICE_SECURITY: dict[str, str] = {
+    "0": "open",
+    "1": "wpa_psk_wpa2_psk",
+    "2": "wpa_wpa2_enterprise",
+    "4": "wpa2_psk_wpa3_sae",
+}
+
+
+@dataclass(frozen=True, slots=True)
 class MonitoringState:
     """Slow, credential-free status; a source missing from available_sections is not healthy.
 
     ``available_sections`` holds the ``module.section`` (or ``module.table``) names that were
     read and recognised in this poll. ``values`` only has keys for available sources, and a
     value the controller reported in an unknown form is None, never False.
+
+    ``wireless_services`` is None unless the opt-in SSID table was read and recognised in this
+    poll; () means it was read and the controller has no wireless network.
     """
 
     values: dict[str, Scalar] = field(default_factory=dict)
@@ -75,6 +143,7 @@ class MonitoringState:
     ap_firmware: tuple[ApFirmware, ...] = ()
     ports: tuple[PortStatus, ...] = ()
     interfaces: tuple[InterfaceTraffic, ...] = ()
+    wireless_services: tuple[WirelessService, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

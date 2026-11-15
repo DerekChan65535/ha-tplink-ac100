@@ -6,6 +6,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import (
     CONF_ENABLE_CONTROL,
+    CONF_MONITOR_WIRELESS_SERVICES,
     CONFIGURATION_INTERVAL,
     MONITORING_INTERVAL,
     UPDATE_INTERVAL,
@@ -21,6 +22,7 @@ async def async_get_config_entry_diagnostics(
     controller = coordinator.data.controller
     monitoring = coordinator.data.monitoring
     configuration = coordinator.data.configuration
+    services = monitoring.wireless_services if monitoring else None
     return {
         "model": controller.model,
         "hardware_version": controller.hardware_version,
@@ -31,6 +33,7 @@ async def async_get_config_entry_diagnostics(
         "last_update_success": coordinator.last_update_success,
         "poll_interval_seconds": int(UPDATE_INTERVAL.total_seconds()),
         "management_enabled": entry.options.get(CONF_ENABLE_CONTROL, False),
+        "wireless_services_monitored": entry.options.get(CONF_MONITOR_WIRELESS_SERVICES, False),
         "optional_poll_intervals_seconds": {
             "monitoring": int(MONITORING_INTERVAL.total_seconds()),
             "configuration": int(CONFIGURATION_INTERVAL.total_seconds()),
@@ -41,6 +44,8 @@ async def async_get_config_entry_diagnostics(
             "physical_ports": len(monitoring.ports) if monitoring else 0,
             "interfaces": len(monitoring.interfaces) if monitoring else 0,
             "access_point_firmware_records": len(monitoring.ap_firmware) if monitoring else 0,
+            # None when the SSID table was not read; 0 when it was read and is empty.
+            "wireless_services": None if services is None else len(services),
         },
         "configuration": {
             "available": configuration is not None,

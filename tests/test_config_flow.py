@@ -26,7 +26,11 @@ from custom_components.tplink_ac100.api import (
     Ac100SessionExpiredError,
 )
 from custom_components.tplink_ac100.config_flow import async_validate_input
-from custom_components.tplink_ac100.const import CONF_ENABLE_CONTROL, DOMAIN
+from custom_components.tplink_ac100.const import (
+    CONF_ENABLE_CONTROL,
+    CONF_MONITOR_WIRELESS_SERVICES,
+    DOMAIN,
+)
 from custom_components.tplink_ac100.models import Controller, Snapshot
 
 MAC = "02:00:00:00:00:01"
@@ -238,7 +242,10 @@ async def test_options(hass: HomeAssistant, flow_entry: MockConfigEntry, enabled
             result["flow_id"], {CONF_ENABLE_CONTROL: enabled}
         )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert flow_entry.options == {CONF_ENABLE_CONTROL: enabled}
+    assert flow_entry.options == {
+        CONF_ENABLE_CONTROL: enabled,
+        CONF_MONITOR_WIRELESS_SERVICES: False,
+    }
     reload_entry.assert_called_once_with(flow_entry.entry_id)
 
 

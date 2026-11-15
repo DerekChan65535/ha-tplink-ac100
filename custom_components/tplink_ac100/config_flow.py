@@ -29,7 +29,12 @@ from .api import (
     Ac100SessionExpiredError,
     normalize_host,
 )
-from .const import CONF_ENABLE_CONTROL, DEFAULT_ENABLE_CONTROL, DOMAIN
+from .const import (
+    CONF_ENABLE_CONTROL,
+    CONF_MONITOR_WIRELESS_SERVICES,
+    DEFAULT_ENABLE_CONTROL,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,7 +54,10 @@ REAUTH_SCHEMA = probatio.Schema(
     }
 )
 OPTIONS_SCHEMA = probatio.Schema(
-    {probatio.Required(CONF_ENABLE_CONTROL, default=DEFAULT_ENABLE_CONTROL): bool}
+    {
+        probatio.Required(CONF_ENABLE_CONTROL, default=DEFAULT_ENABLE_CONTROL): bool,
+        probatio.Required(CONF_MONITOR_WIRELESS_SERVICES, default=False): bool,
+    }
 )
 
 
@@ -190,10 +198,10 @@ class Ac100ConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class Ac100OptionsFlow(OptionsFlowWithReload):
-    """Control whether explicit device management is allowed."""
+    """Choose whether explicit device management is allowed and wireless networks are read."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Save control opt-in and let Home Assistant reload the entry."""
+        """Save the opt-ins and let Home Assistant reload the entry."""
         if user_input is not None:
             return self.async_create_entry(data=user_input)
         return self.async_show_form(

@@ -16,6 +16,7 @@ from .coordinator import Ac100ConfigEntry, Ac100Coordinator
 from .entity import Ac100Entity
 from .monitoring import PortStatus
 from .radio_entity import add_radio_settings
+from .wireless_service import add_wireless_service_binary_sensors
 
 PARALLEL_UPDATES = 0
 
@@ -52,6 +53,7 @@ async def async_setup_entry(
     entry.async_on_unload(coordinator.async_add_listener(async_add_new_entities))
     add_configuration_entities(entry, async_add_entities, binary=True)
     add_radio_settings(entry, async_add_entities, binary=True)
+    add_wireless_service_binary_sensors(entry, async_add_entities)
 
 
 class Ac100ApConnectivitySensor(Ac100Entity, BinarySensorEntity):

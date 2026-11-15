@@ -51,6 +51,15 @@
       },
       "cpu_usage_average": {
         "default": "mdi:chip"
+      },
+      "wireless_service_security": {
+        "default": "mdi:shield-lock",
+        "state": {
+          "open": "mdi:shield-off"
+        }
+      },
+      "wireless_service_vlan": {
+        "default": "mdi:lan"
       }
     },
     "binary_sensor": {
@@ -77,6 +86,24 @@
         "state": {
           "off": "mdi:cloud-off-outline"
         }
+      },
+      "wireless_service_enabled": {
+        "default": "mdi:wifi",
+        "state": {
+          "off": "mdi:wifi-off"
+        }
+      },
+      "wireless_service_hidden": {
+        "default": "mdi:eye-off",
+        "state": {
+          "off": "mdi:eye"
+        }
+      },
+      "wireless_service_isolation": {
+        "default": "mdi:lan-disconnect",
+        "state": {
+          "off": "mdi:lan-connect"
+        }
       }
     },
     "switch": {
@@ -88,6 +115,69 @@
       },
       "debug_logging": {
         "default": "mdi:bug"
+      },
+      "wireless_service_enabled": {
+        "default": "mdi:wifi",
+        "state": {
+          "off": "mdi:wifi-off"
+        }
+      },
+      "wireless_service_broadcast": {
+        "default": "mdi:access-point",
+        "state": {
+          "off": "mdi:access-point-off"
+        }
+      },
+      "wireless_service_isolation": {
+        "default": "mdi:lan-disconnect",
+        "state": {
+          "off": "mdi:lan-connect"
+        }
+      },
+      "wireless_service_igmp_snooping": {
+        "default": "mdi:broadcast",
+        "state": {
+          "off": "mdi:broadcast-off"
+        }
+      },
+      "wireless_service_igmp_querier": {
+        "default": "mdi:help-network",
+        "state": {
+          "off": "mdi:help-network-outline"
+        }
+      },
+      "band_navigation_enabled": {
+        "default": "mdi:swap-horizontal"
+      },
+      "load_balance_enabled": {
+        "default": "mdi:scale-balance"
+      },
+      "broadcast_storm_control_enabled": {
+        "default": "mdi:broadcast"
+      },
+      "igmp_snooping_enabled": {
+        "default": "mdi:access-point-network"
+      },
+      "radio_enabled": {
+        "default": "mdi:wifi",
+        "state": {
+          "off": "mdi:wifi-off"
+        }
+      }
+    },
+    "number": {
+      "broadcast_storm_rate": {
+        "default": "mdi:speedometer"
+      }
+    },
+    "text": {
+      "device_alias": {
+        "default": "mdi:rename-box"
+      }
+    },
+    "button": {
+      "save_configuration": {
+        "default": "mdi:content-save"
       }
     }
   }

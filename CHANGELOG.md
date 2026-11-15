@@ -25,6 +25,15 @@
   15-minute settings read, so these entities also start that read when enabled. A setting
   that does not apply, such as a weak-signal threshold while its rule is off, is unknown.
 
+- Optional wireless network (SSID) devices, off by default: connected clients, enabled and
+  hidden state, client isolation, security type and default VLAN. The SSID table also holds
+  Wi-Fi/RADIUS keys; they are dropped in memory and never stored, logged or shown.
+- Management controls (management option, entities disabled by default): AP radio on/off,
+  SSID enabled/broadcast/client isolation/IGMP snooping/IGMP querier, band steering and load
+  balancing with their thresholds, broadcast storm suppression and rate, multicast settings,
+  controller name and Save configuration. Each write sends the web page's own form once,
+  built from a fresh read, and was live-tested with restore on TL-AC100 hardware 5.0.
+
 ### Changed
 
 - Keep legacy numeric uptime entities and statistics intact; add separate native uptime

@@ -57,12 +57,14 @@
     "step": {
       "init": {
         "title": "Controller management",
-        "description": "Monitoring is read-only by default. Enable control only if you want to send explicit management actions. Reboot buttons remain disabled until individually enabled; pressing one interrupts service. Before an LED action, one AP configuration row is checked transiently in memory for LED/WiFi synchronization. The response may contain management fields; they are not saved or logged. LED control requires synchronization to be explicitly off.",
+        "description": "Monitoring is read-only by default. Device control allows explicit management actions: indicator LEDs, AP radios, wireless networks, controller settings and name, Save configuration and reboots. Most control entities are created disabled; enable only the ones you need. Each action is sent once and is never repeated automatically. Changes stay in the controller's running configuration until Save configuration is pressed, and saving also stores changes made outside Home Assistant. Turning a radio or wireless network off disconnects its clients. Before an LED action, one AP configuration row is checked in memory for LED/Wi-Fi synchronization; it is not saved or logged, and LED control requires synchronization to be off.",
         "data": {
-          "enable_control": "Enable device control"
+          "enable_control": "Enable device control",
+          "monitor_wireless_services": "Monitor wireless networks"
         },
         "data_description": {
-          "enable_control": "Allow explicit indicator LED and reboot actions. This setting does not run any action by itself."
+          "enable_control": "Allow explicit management actions. This setting does not run any action by itself.",
+          "monitor_wireless_services": "Add a device for each wireless network (SSID), with its status and, when device control is enabled, its settings. The controller returns Wi-Fi and RADIUS keys together with the SSID list. They are dropped in memory and are never stored, logged or shown. When this is off, the SSID list is not requested."
         }
       }
     }
@@ -74,11 +76,44 @@
       },
       "debug_logging": {
         "name": "Debug logging"
+      },
+      "wireless_service_enabled": {
+        "name": "Enabled"
+      },
+      "wireless_service_broadcast": {
+        "name": "Broadcast SSID"
+      },
+      "wireless_service_isolation": {
+        "name": "Client isolation"
+      },
+      "wireless_service_igmp_snooping": {
+        "name": "IGMP snooping"
+      },
+      "wireless_service_igmp_querier": {
+        "name": "IGMP querier"
+      },
+      "band_navigation_enabled": {
+        "name": "Band navigation"
+      },
+      "load_balance_enabled": {
+        "name": "Load balancing"
+      },
+      "broadcast_storm_control_enabled": {
+        "name": "Broadcast storm suppression"
+      },
+      "igmp_snooping_enabled": {
+        "name": "IGMP snooping"
+      },
+      "radio_enabled": {
+        "name": "{band} radio"
       }
     },
     "button": {
       "reboot": {
         "name": "Reboot"
+      },
+      "save_configuration": {
+        "name": "Save configuration"
       }
     },
     "sensor": {
@@ -402,6 +437,18 @@
       },
       "cpu_usage_average": {
         "name": "CPU usage"
+      },
+      "wireless_service_security": {
+        "name": "Security",
+        "state": {
+          "open": "Open",
+          "wpa_psk_wpa2_psk": "WPA-PSK/WPA2-PSK",
+          "wpa_wpa2_enterprise": "WPA/WPA2-Enterprise",
+          "wpa2_psk_wpa3_sae": "WPA2-PSK/WPA3-SAE"
+        }
+      },
+      "wireless_service_vlan": {
+        "name": "Default VLAN"
       }
     },
     "binary_sensor": {
@@ -527,11 +574,74 @@
       },
       "security_audit_enabled": {
         "name": "Security audit"
+      },
+      "wireless_service_enabled": {
+        "name": "Enabled"
+      },
+      "wireless_service_hidden": {
+        "name": "Hidden"
+      },
+      "wireless_service_isolation": {
+        "name": "Client isolation"
       }
     },
     "update": {
       "firmware": {
         "name": "Firmware"
+      }
+    },
+    "number": {
+      "band_navigation_5g_threshold": {
+        "name": "Band navigation 5 GHz client threshold"
+      },
+      "band_navigation_difference_threshold": {
+        "name": "Band navigation client difference threshold"
+      },
+      "band_navigation_max_failures": {
+        "name": "Band navigation maximum failures"
+      },
+      "load_balance_threshold": {
+        "name": "Load balancing client threshold"
+      },
+      "load_balance_difference_threshold": {
+        "name": "Load balancing client difference threshold"
+      },
+      "load_balance_max_failures": {
+        "name": "Load balancing maximum failures"
+      },
+      "load_balance_rssi_threshold": {
+        "name": "Load balancing RSSI threshold"
+      },
+      "broadcast_storm_rate": {
+        "name": "Broadcast storm suppression rate"
+      }
+    },
+    "select": {
+      "igmp_unknown_multicast": {
+        "name": "Unknown multicast packets",
+        "state": {
+          "forward": "Forward",
+          "drop": "Drop"
+        }
+      },
+      "igmp_2g_multicast_rate": {
+        "name": "2.4 GHz broadcast and multicast rate",
+        "state": {
+          "1": "1 Mbit/s",
+          "11": "11 Mbit/s"
+        }
+      },
+      "igmp_5g_multicast_rate": {
+        "name": "5 GHz broadcast and multicast rate",
+        "state": {
+          "6": "6 Mbit/s",
+          "24": "24 Mbit/s"
+        }
+      }
+    },
+    "text": {
+      "device_alias": {
+        "name": "Device name"
       }
     }
   },
@@ -559,6 +669,18 @@
     },
     "session_expired": {
       "message": "The controller session expired and the action was not retried automatically. Check the current state and run the action again if it is still needed."
+    },
+    "wireless_service_unavailable": {
+      "message": "The controller does not list this wireless network. Wait for the next update and try again."
+    },
+    "invalid_value": {
+      "message": "The value was rejected before it was sent to the controller. {reason}."
+    },
+    "save_outcome_unknown": {
+      "message": "The controller did not confirm within 60 seconds that the configuration was saved. The save may still finish. Check the Configuration not saved status before pressing Save configuration again."
+    },
+    "save_in_progress": {
+      "message": "The configuration is already being saved. Wait for it to finish."
     }
   }
 }

@@ -9,12 +9,23 @@ import json
 import logging
 import math
 import re
+from asyncio import sleep
 from collections.abc import Awaitable, Mapping
+from time import monotonic
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
 
 import aiohttp
 
+from .management import (
+    ALIAS_RULE,
+    SAVE_COMPLETE,
+    SAVE_POLL_INTERVAL,
+    SAVE_TIMEOUT,
+    alias_is_valid,
+    encode_setting,
+    form_request,
+)
 from .models import AccessPoint, ApRadio, Client, ClientRadio, Controller, Snapshot
 from .monitoring import (
     CONFIGURATION_FIELDS,
@@ -23,6 +34,8 @@ from .monitoring import (
     RADIO_MODULE,
     RADIO_SOURCE,
     RADIO_TABLE,
+    WIRELESS_SERVICE_FLAGS,
+    WIRELESS_SERVICE_SECURITY,
     ApFirmware,
     ConfigField,
     ConfigurationState,
@@ -33,6 +46,7 @@ from .monitoring import (
     RadioField,
     RadioSettings,
     Scalar,
+    WirelessService,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -86,6 +100,13 @@ class Ac100ProtocolError(Ac100Error):
 
 class Ac100UnsafeLedError(Ac100Error):
     """LED control could not be confirmed independent of the AP's WiFi."""
+
+
+class Ac100SaveTimeoutError(Ac100Error):
+    """The controller did not report in time that a configuration save had finished.
+
+    The save request was accepted, so the outcome is unknown. It is never sent again.
+    """
 
 
 def normalize_host(host: str) -> str:
@@ -759,6 +780,8 @@ class Ac100Api:
 
         Every request is a GET under the shared lock and session. Connection, authentication and
         session errors propagate; the core snapshot is a separate call and is never affected.
+        The SSID table, which also holds Wi-Fi and RADIUS secrets, is only requested with
+        ``wireless_services``.
         """
         async with self._lock:
             self._ensure_open()
@@ -777,6 +800,9 @@ class Ac100Api:
                 if (table := await self._optional(read())) is not None:
                     tables[source] = table
             available.update(tables)
+            services = (
+                await self._optional(self._read_wireless_services()) if wireless_services else None
+            )
             state = MonitoringState(
                 values=values,
                 available_sections=frozenset(available),
@@ -784,6 +810,7 @@ class Ac100Api:
                 ap_firmware=tables.get("apmng_upgrade.ap_list", ()),
                 ports=tables.get("port.port", ()),
                 interfaces=tables.get("system.ifstat_list", ()),
+                wireless_services=services,
             )
             _LOGGER.debug(
                 "Controller monitoring received (sources=%s, aps=%s, ports=%s, interfaces=%s)",
@@ -814,6 +841,91 @@ class Ac100Api:
             )
             return state
 
+    async def _read_wireless_services(self) -> tuple[WirelessService, ...]:
+        """Read the SSID table and keep only the allow-listed fields of each row.
+
+        The same rows hold Wi-Fi and RADIUS secrets and the request cannot leave them out, so
+        every row is projected here and none of them leaves this method.
+        """
+        try:
+            rows = await self._table("apmng_wserv", "wlan_serv", None, max_rows=_MAX_OPTIONAL_ROWS)
+            services = self._parse_wireless_services(rows)
+        except Ac100ProtocolError:
+            _LOGGER.debug("Controller wireless services are unavailable")
+            raise
+        _LOGGER.debug("Controller wireless services received (count=%s)", len(services))
+        return services
+
+    @staticmethod
+    def _parse_wireless_services(rows: list[dict[str, Any]]) -> tuple[WirelessService, ...]:
+        """Map each row to a WirelessService; a row that cannot be told apart voids the table.
+
+        The identity is ``serv_id``, never the name or the row position.
+        """
+        services: dict[str, WirelessService] = {}
+        for row in rows:
+            number, name = _count(row.get("serv_id")), row.get("ssid")
+            # An SSID has at most 32 bytes, so at most 96 characters while still percent-encoded.
+            if (
+                number is None
+                or not isinstance(name, str)
+                or not name.strip()
+                or len(name) > 96
+                or not name.isprintable()
+            ):
+                raise Ac100ProtocolError("Invalid wireless service data")
+            if (service_id := str(number)) in services:
+                raise Ac100ProtocolError("Duplicate wireless service identity")
+            vlan = _count(row.get("default_bind_vlan"))
+            if row.get("bind_vlan_type") != "single_vlan" or vlan not in range(1, 4095):
+                vlan = None  # VLAN IDs are 1-4094; the controller sends 0 for none
+            services[service_id] = WirelessService(
+                service_id,
+                name,
+                security=_choice(WIRELESS_SERVICE_SECURITY, row.get("encryption")),
+                vlan=vlan,
+                **{
+                    flag.key: _choice(flag.states, row.get(flag.field))
+                    for flag in WIRELESS_SERVICE_FLAGS
+                },
+            )
+        return tuple(services.values())
+
+    async def async_set_wireless_service(
+        self, service_id: str, field: str, value: bool, *, name: str
+    ) -> None:
+        """Set one on/off setting of one wireless network, once and without a replay.
+
+        ``field`` is a key of WIRELESS_SERVICE_FLAGS. ``name`` is the SSID that the caller
+        believes the identity belongs to, as a service ID can be reused after its network is
+        deleted. Under the shared lock the SSID table is read again, and nothing is sent unless
+        the network still has that identity and name. The write holds only the one setting, and
+        is left out when the controller already has the requested value.
+        """
+        flag = {item.key: item for item in WIRELESS_SERVICE_FLAGS}[field]
+        async with self._lock:
+            self._ensure_open()
+            services = await self._read_wireless_services()
+            service = next((item for item in services if item.service_id == service_id), None)
+            if service is None or service.name != name:
+                raise Ac100Error("The wireless network changed or no longer exists")
+            if getattr(service, field) is value:
+                _LOGGER.debug("Controller wireless network setting already applied (%s)", field)
+                return
+            _LOGGER.debug(
+                "Controller management request: wireless network (%s, enabled=%s)", field, value
+            )
+            await self._request(
+                {
+                    "method": "set",
+                    "apmng_wserv": {
+                        "table": "wlan_serv",
+                        "filter": [{"serv_id": service_id}],
+                        "para": {flag.field: flag.on if value else flag.off},
+                    },
+                }
+            )
+
     async def _get_ap_led_wifi_sync(self, entry_id: str) -> bool | None:
         """Read one AP configuration transiently; never cache its accompanying fields."""
         _LOGGER.debug("AP LED safety check started")
@@ -840,6 +952,127 @@ class Ac100Api:
                 state = False
         _LOGGER.debug("AP LED safety check complete (verified_off=%s)", state is False)
         return state
+
+    async def _read_form_section(self, module: str, section: str) -> dict[str, Any]:
+        """Read one settings section now: a write builds its form from this, never from a cache."""
+        result = await self._request({"method": "get", module: {"name": section}})
+        return _section(result, module, section)
+
+    async def async_set_setting(self, field: ConfigField, value: Scalar) -> None:
+        """Change one catalogued setting by sending its web page's complete form once.
+
+        The value is checked against the page's own rules first (ValueError, and nothing is
+        read or sent). Then, under the shared lock, the section is read again and the form is
+        built from that fresh read, with only this field (and the field its page ties to it)
+        changed. The write is never sent again, not even after a session expiry.
+        """
+        raw = encode_setting(field, value)
+        async with self._lock:
+            self._ensure_open()
+            section = await self._read_form_section(field.module, field.section)
+            try:
+                request = form_request(field, raw, section)
+            except ValueError as err:
+                raise Ac100ProtocolError(str(err)) from None
+            _LOGGER.debug("Controller management request: setting")
+            await self._request(request)
+
+    async def async_set_controller_alias(self, name: str) -> None:
+        """Rename the controller with the System page's request, which sends the name alone."""
+        if not alias_is_valid(name):
+            raise ValueError(ALIAS_RULE)
+        async with self._lock:
+            self._ensure_open()
+            _LOGGER.debug("Controller management request: controller name")
+            await self._request({"method": "set", "system": {"sys": {"dev_alias": name}}})
+
+    async def _find_radio_address(self, ap_entry_id: str, unit: str) -> str:
+        """Look up one radio's ``rf_id`` in a fresh read of the radio table.
+
+        The radio is the one row whose ``rf_id // 16`` is the AP's ``entry_id`` and whose
+        ``freq_unit`` is the unit. As in _parse_radios, AP templates are no radios and a row
+        that cannot be read makes the whole table unusable.
+        """
+        rows = await self._table(
+            RADIO_MODULE,
+            RADIO_TABLE,
+            [{"group_id": ["-1"], "ap_status": ["0"]}],
+            max_rows=_MAX_RADIO_ROWS,
+        )
+        matches = []
+        for row in rows:
+            if row.get("ap_type") == "template":
+                continue
+            radio_id, radio_unit = _count(row.get("rf_id")), _count(row.get("freq_unit"))
+            if radio_id is None or radio_unit is None:
+                raise Ac100ProtocolError("Invalid radio data")
+            if (str(radio_id // 16), str(radio_unit)) == (ap_entry_id, unit):
+                matches.append(str(radio_id))
+        if not matches:
+            raise Ac100Error("The radio changed or no longer exists")
+        if len(matches) > 1:
+            raise Ac100ProtocolError("Duplicate radio identity")
+        return matches[0]
+
+    async def async_set_radio_enabled(self, ap_entry_id: str, unit: str, enabled: bool) -> None:
+        """Switch one AP radio on or off with the radio page's one-field update, once.
+
+        ``ap_entry_id`` is the AP's current command address. Under the shared lock the radio
+        table is read again, and nothing is sent unless exactly one radio matches.
+        """
+        if not isinstance(enabled, bool):
+            raise ValueError("A radio is switched on or off")
+        async with self._lock:
+            self._ensure_open()
+            radio_id = await self._find_radio_address(ap_entry_id, unit)
+            _LOGGER.debug("Controller management request: radio (enabled=%s)", enabled)
+            await self._request(
+                {
+                    "method": "set",
+                    RADIO_MODULE: {
+                        "table": RADIO_TABLE,
+                        "filter": [{"rf_id": radio_id}],
+                        "para": {"rf_state": "on" if enabled else "off"},
+                    },
+                }
+            )
+
+    async def async_save_configuration(self) -> None:
+        """Save the configuration once, then wait until the controller reports it finished.
+
+        The save request is sent once and never repeated. The wait polls the save status every
+        SAVE_POLL_INTERVAL seconds and does not hold the shared lock in between. A poll without
+        an answer is only a poll that has no answer yet: the controller can be slow while it
+        writes. If it has not reported completion within SAVE_TIMEOUT seconds, the outcome is
+        unknown (Ac100SaveTimeoutError).
+        """
+        async with self._lock:
+            self._ensure_open()
+            _LOGGER.debug("Controller management request: save configuration")
+            await self._request({"method": "do", "system": {"save_cfg": None}})
+        deadline = monotonic() + SAVE_TIMEOUT
+        polls = 0
+        while True:
+            await sleep(SAVE_POLL_INTERVAL)
+            polls += 1
+            if await self._save_is_complete():
+                _LOGGER.debug("Controller configuration save complete (polls=%s)", polls)
+                return
+            if monotonic() >= deadline:
+                _LOGGER.debug("Controller configuration save not confirmed (polls=%s)", polls)
+                raise Ac100SaveTimeoutError("The controller did not report that saving finished")
+
+    async def _save_is_complete(self) -> bool:
+        async with self._lock:
+            self._ensure_open()
+            try:
+                result = await self._request(
+                    {"method": "get", "system": {"name": "save_cfg_status"}}
+                )
+                status = _section(result, "system", "save_cfg_status").get("status")
+            except Ac100ConnectionError, Ac100ProtocolError:
+                return False
+        return status == SAVE_COMPLETE
 
     async def async_get_ap_led_wifi_sync(self, entry_id: str) -> bool | None:
         """Read one AP's sync setting: True=on, False=off, None=unverified."""
