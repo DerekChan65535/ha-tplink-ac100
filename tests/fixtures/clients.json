@@ -1,0 +1,251 @@
+{
+  "error_code": 0,
+  "apmng_client": {
+    "count": {
+      "client_list": 14
+    },
+    "client_list": [
+      {
+        "client_list_23": {
+          "brand": "---",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%201",
+          "connect_date": "2026%2f11%2f15",
+          "rf_entry": [
+            {
+              "freq_name": "2.4GHz",
+              "rssi": "-50",
+              "freq_unit": "1",
+              "nego_rate": "276"
+            }
+          ],
+          "ip": "192.0.2.15",
+          "encode": "1",
+          "mac": "02-00-00-00-00-07",
+          "entry_id": "23",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "connect_time": "02%3a59%3a32",
+          "ap_name": "Example%20AP%201"
+        }
+      },
+      {
+        "client_list_16": {
+          "brand": "---",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%202",
+          "connect_date": "2026%2f11%2f15",
+          "rf_entry": [
+            {
+              "freq_name": "2.4GHz",
+              "rssi": "-48",
+              "freq_unit": "1",
+              "nego_rate": "92"
+            }
+          ],
+          "ip": "192.0.2.16",
+          "encode": "1",
+          "mac": "02-00-00-00-00-08",
+          "entry_id": "16",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "connect_time": "02%3a27%3a04",
+          "ap_name": "Example%20AP%201"
+        }
+      },
+      {
+        "client_list_17": {
+          "brand": "---",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%202",
+          "connect_date": "2026%2f11%2f15",
+          "rf_entry": [
+            {
+              "freq_name": "2.4GHz",
+              "rssi": "-56",
+              "freq_unit": "1",
+              "nego_rate": "66"
+            }
+          ],
+          "ip": "192.0.2.17",
+          "encode": "1",
+          "mac": "02-00-00-00-00-09",
+          "entry_id": "17",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "connect_time": "00%3a02%3a40",
+          "ap_name": "Example%20AP%201"
+        }
+      },
+      {
+        "client_list_4": {
+          "brand": "others",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%202",
+          "connect_date": "2026%2f11%2f15",
+          "rf_entry": [
+            {
+              "freq_name": "2.4GHz",
+              "rssi": "-59",
+              "freq_unit": "1",
+              "nego_rate": "138"
+            }
+          ],
+          "ip": "192.0.2.18",
+          "encode": "1",
+          "mac": "02-00-00-00-00-0A",
+          "entry_id": "4",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "connect_time": "02%3a57%3a32",
+          "ap_name": "Example%20AP%201"
+        }
+      },
+      {
+        "client_list_28": {
+          "brand": "---",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%202",
+          "connect_date": "2026%2f11%2f15",
+          "rf_entry": [
+            {
+              "freq_name": "2.4GHz",
+              "rssi": "-58",
+              "freq_unit": "1",
+              "nego_rate": "153"
+            }
+          ],
+          "ip": "192.0.2.19",
+          "encode": "1",
+          "mac": "02-00-00-00-00-0B",
+          "entry_id": "28",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "connect_time": "03%3a40%3a30",
+          "ap_name": "Example%20AP%201"
+        }
+      },
+      {
+        "client_list_38": {
+          "brand": "---",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%202",
+          "connect_date": "2026%2f11%2f15",
+          "rf_entry": [
+            {
+              "freq_name": "2.4GHz",
+              "rssi": "-40",
+              "freq_unit": "1",
+              "nego_rate": "138"
+            }
+          ],
+          "ip": "192.0.2.20",
+          "encode": "1",
+          "mac": "02-00-00-00-00-0C",
+          "entry_id": "38",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "connect_time": "05%3a21%3a35",
+          "ap_name": "Example%20AP%201"
+        }
+      },
+      {
+        "client_list_20": {
+          "brand": "---",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%203",
+          "connect_date": "2026%2f11%2f15",
+          "rf_entry": [
+            {
+              "freq_name": "5GHz",
+              "rssi": "-65",
+              "freq_unit": "2",
+              "nego_rate": "442"
+            }
+          ],
+          "ip": "192.0.2.21",
+          "encode": "1",
+          "mac": "02-00-00-00-00-0D",
+          "entry_id": "20",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "connect_time": "00%3a04%3a21",
+          "ap_name": "Example%20AP%201"
+        }
+      },
+      {
+        "client_list_27": {
+          "brand": "---",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%203",
+          "connect_date": "2026%2f11%2f15",
+          "rf_entry": [
+            {
+              "freq_name": "5GHz",
+              "rssi": "-71",
+              "freq_unit": "2",
+              "nego_rate": "538"
+            }
+          ],
+          "ip": "192.0.2.22",
+          "encode": "1",
+          "mac": "02-00-00-00-00-0E",
+          "entry_id": "27",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "connect_time": "03%3a40%3a28",
+          "ap_name": "Example%20AP%201"
+        }
+      },
+      {
+        "client_list_3": {
+          "brand": "---",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%202",
+          "connect_date": "2026%2f11%2f15",
+          "rf_entry": [
+            {
+              "freq_name": "2.4GHz",
+              "rssi": "-72",
+              "freq_unit": "1",
+              "nego_rate": "66"
+            }
+          ],
+          "ip": "192.0.2.23",
+          "encode": "1",
+          "mac": "02-00-00-00-00-0F",
+          "entry_id": "3",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "connect_time": "02%3a57%3a31",
+          "ap_name": "Example%20AP%203"
+        }
+      },
+      {
+        "client_list_2": {
+          "brand": "others",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%203",
+          "connect_date": "2026%2f11%2f15",
+          "rf_entry": [
+            {
+              "freq_name": "5GHz",
+              "rssi": "-70",
+              "freq_unit": "2",
+              "nego_rate": "663"
+            }
+          ],
+          "ip": "192.0.2.24",
+          "encode": "1",
+          "mac": "02-00-00-00-00-10",
+          "name": "Example%20AP%206",
+          "entry_id": "2",
+          "vlan_id": "0",
+          "operating_system": "windows",
+          "connect_time": "02%3a57%3a30",
+          "ap_name": "Example%20AP%203"
+        }
+      }
+    ]
+  }
+}

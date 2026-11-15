@@ -1,0 +1,27 @@
+{
+  "error_code": 0,
+  "firmware": {
+    "config": {
+      "model": "TL-AC100",
+      "hardware_version": "5.0",
+      "firmware_version": "1.0.5%20Build%20250814%20Rel.82234n"
+    }
+  },
+  "system": {
+    "cpu_usage": {
+      "core1": "0",
+      "core2": "0",
+      "core3": "1",
+      "core4": "0"
+    },
+    "mem_usage": {
+      "mem": "17"
+    },
+    "system_time": {
+      "date": "2026%2f11%2f15",
+      "run": "9296",
+      "day": "Sun",
+      "time": "1794720633"
+    }
+  }
+}

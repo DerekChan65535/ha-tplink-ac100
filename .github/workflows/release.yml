@@ -1,0 +1,82 @@
+name: Draft release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+
+  draft:
+    name: Prepare reviewed release draft
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check versions and prepare release notes
+        shell: python
+        run: |
+          import json
+          import os
+          import tomllib
+          from pathlib import Path
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          version = tag.removeprefix("v")
+          root = Path.cwd()
+          manifest = json.loads(
+              (root / "custom_components/tplink_ac100/manifest.json").read_text()
+          )
+          project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
+          hacs = json.loads((root / "hacs.json").read_text())
+          if not version or version != manifest["version"] or version != project["version"]:
+              raise SystemExit("Tag, manifest.json, and pyproject.toml versions must agree")
+          if manifest["domain"] != "tplink_ac100":
+              raise SystemExit("Unexpected integration domain")
+          for field in ("documentation", "issue_tracker"):
+              value = manifest[field]
+              if not value.startswith("https://") or "OWNER" in value:
+                  raise SystemExit(f"Release metadata is incomplete: {field}")
+          if not hacs.get("homeassistant"):
+              raise SystemExit("Declare the tested minimum Home Assistant version")
+          changelog = (root / "CHANGELOG.md").read_text()
+          heading = f"## [{version}]"
+          lines = changelog.splitlines()
+          starts = [index for index, line in enumerate(lines) if line.startswith(heading)]
+          if len(starts) != 1:
+              raise SystemExit(f"CHANGELOG.md must contain one section {heading}")
+          start = starts[0]
+          end = next(
+              (index for index in range(start + 1, len(lines)) if lines[index].startswith("## ")),
+              len(lines),
+          )
+          section = "\n".join(lines[start + 1:end]).strip()
+          if not section:
+              raise SystemExit("Release notes must not be empty")
+          notes = f"Minimum Home Assistant: **{hacs['homeassistant']}**.\n\n{section}\n"
+          (root / "dist").mkdir(exist_ok=True)
+          (root / "dist/release-notes.md").write_text(notes)
+      - name: Create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: >-
+          gh release create "$TAG"
+          --repo "$GITHUB_REPOSITORY"
+          --verify-tag
+          --draft
+          --title "$TAG"
+          --notes-file dist/release-notes.md

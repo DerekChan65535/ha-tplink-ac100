@@ -1,0 +1,152 @@
+# TP-Link AC100 for Home Assistant
+
+A community custom integration for **TP-LINK TL-AC100** controllers. It talks to the
+controller's local management interface and exposes native Home Assistant devices,
+entities, and actions. No embedded web panel, cloud account, MQTT bridge, or separate
+service is required.
+
+[简体中文](README.zh-CN.md) · [Releases](https://github.com/DerekChan65535/ha-tplink-ac100/releases) · [Report an issue](https://github.com/DerekChan65535/ha-tplink-ac100/issues) · [Security](SECURITY.md)
+
+> **Early release.** This is not an official TP-LINK or Home Assistant integration.
+> Read-only polling has been checked on the hardware/firmware listed below.
+> Management operations are optional and are **not live-write validated**.
+> Do not test reboot actions on a production Wi-Fi network.
+
+## Scope and compatibility
+
+| Item | Status |
+| --- | --- |
+| Home Assistant | Requires **2026.11.1 or newer**; development/test target: 2026.11.1. Older versions are not supported. |
+| Controller | Read-only checks: **TL-AC100 hardware 5.0**, firmware **1.0.5 Build 250814 Rel.82234n**. Other versions are unverified. |
+| Monitoring | Controller, managed AP, and connected-client state as native HA entities. |
+| AP LED | Optional control; based on interface evidence, not a live-write verification. |
+| AP/controller reboot | Optional, disruptive control; **not tested on live hardware**. |
+| SSID/wireless configuration changes | Not included in the initial release. |
+| Default polling | **60 seconds**. |
+
+The minimum HA version is intentional: this integration uses current HA APIs, without
+compatibility shims for older releases. A newer HA release or controller firmware may
+still introduce changes; consult the release notes before upgrading.
+
+**Management is off by default.** Enable the integration's management option only if
+you accept the risk. Reboot button entities are also disabled by default; turning on
+the option does not make it safe to invoke them. Do not use write operations as a
+health check. Software tests and interface evidence do not establish hardware safety.
+
+Client names, addresses, and presence can be sensitive. Review which entities you
+enable and expose to dashboards, history, automations, or external services.
+
+## Install with HACS
+
+This repository can be added as a **HACS custom repository**. That is separate from
+being included in HACS's default directory; do not assume default-directory inclusion.
+
+1. Back up Home Assistant and read the [release notes](https://github.com/DerekChan65535/ha-tplink-ac100/releases).
+2. Open **HACS → ⋮ → Custom repositories**.
+3. Add `https://github.com/DerekChan65535/ha-tplink-ac100`, type **Integration**.
+4. Open **TP-Link AC100**, select **Download**, and choose a compatible release.
+5. **Restart Home Assistant Core**. Refreshing the browser or reloading an integration
+   does not replace this restart after installing or changing its Python code.
+6. Open **Settings → Devices & services → Add integration → TP-Link AC100**.
+7. Enter the controller's management address and credentials. Start with monitoring;
+   leave management disabled.
+
+[Open this repository in HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=DerekChan65535&repository=ha-tplink-ac100&category=integration)
+
+HACS downloads code; adding the controller in Devices & services is a separate step.
+No GitHub PAT or Home Assistant access token needs to be shared with this project's
+maintainer. Installing/configuring HACS itself is outside this repository's scope.
+
+## Manual installation
+
+1. Download the source archive for a specific [Release](https://github.com/DerekChan65535/ha-tplink-ac100/releases).
+2. Extract it locally. Copy **only** `custom_components/tplink_ac100/` into your HA
+   configuration directory's `custom_components/` directory.
+3. Check the final path: `<HA_CONFIG>/custom_components/tplink_ac100/manifest.json`.
+   Do not nest the whole repository inside `custom_components`.
+4. Restart Home Assistant Core, then add **TP-Link AC100** in Devices & services.
+
+For HA OS the configuration directory is normally `/config`. For HA Container, use
+the host directory mounted at `/config`; do not write into Python `site-packages`.
+Use one code-management method at a time: HACS **or** manual installation.
+
+## Update, roll back, and remove
+
+### Update
+
+1. Read the target release's compatibility notes. Record your current HA/integration
+   versions and create a complete HA backup; keep credential-bearing backups private.
+2. In HACS, download the update or use **Redownload** to choose a specific version.
+   **Update information** only refreshes metadata; it does not install code.
+3. Restart Home Assistant Core. Check monitoring, entity IDs, and existing automations
+   before considering any management action.
+
+For a manual update, stop HA and replace the **whole** `tplink_ac100` directory with
+the target release's directory, so removed files do not linger. Keep the old copy
+outside `custom_components`, then start HA. Do not overwrite the rest of the HA config.
+
+### Roll back
+
+If there was no incompatible configuration migration, use **HACS → repository ⋮ →
+Redownload → Need a different version?** to choose the previous working release,
+then restart HA. If it is not offered, restore that release's complete directory
+manually while HA is stopped.
+
+A code downgrade does **not** undo config-entry migrations, an HA upgrade, or changes
+made on the controller. In those cases restore a matching pre-upgrade HA backup and
+compatible HA/integration versions. Do not hand-edit `.storage` to force a downgrade.
+Recheck the release notes before retrying an update.
+
+### Remove
+
+Remove or adjust dependent automations first. Delete the integration's config entry
+in **Devices & services**, remove the code through HACS (or manually while HA is
+stopped), then restart HA. Removing a HACS repository alone does not guarantee removal
+of its stored configuration/data. Never delete the whole `custom_components` directory.
+
+## Network and credential safety
+
+- Keep the controller and HA on a trusted management network. Do not expose the
+  controller's management port to the Internet or add port-forwarding for this integration.
+- Use a dedicated least-privilege account if the controller supports one. If only an
+  administrator account works, understand that the integration holds those privileges.
+- An HTTP management interface is not encrypted. Device limitations are not fixed by
+  running this integration. Do not disable TLS verification as a general workaround.
+- HA config entries and backups can contain credentials. Protect both. Do not upload
+  raw config entries, cookies, authentication responses, packet captures, or device dumps.
+- Runtime communication is local to the controller. HACS/GitHub and package installation
+  may require Internet access when installing or updating software.
+
+For vulnerability reports, use [SECURITY.md](SECURITY.md), not a public issue with
+sensitive details. For ordinary bugs, include HA/integration/hardware/firmware versions,
+steps to reproduce, and **redacted** logs. Never include passwords or real client data.
+
+## Development
+
+Requires Python **3.14.2+** and [uv](https://docs.astral.sh/uv/). From the repository root:
+
+```console
+uv sync --frozen
+uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen pytest
+```
+
+Tests must use mocks/fixtures, not a real controller or a user's Home Assistant.
+The development environment pins `homeassistant==2026.11.1` and the official
+`pytest-homeassistant==2026.11.1` in `uv.lock`.
+
+CI runs project checks, hassfest, and HACS validation. These checks do not prove
+controller firmware compatibility or safe write behavior. Pushing a version tag runs
+the checks and creates a **draft** GitHub Release; a maintainer must review and publish it.
+A tag alone is not a published release. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License and attribution
+
+[MIT](LICENSE), copyright 2026 Derek Chan and contributors. The controller protocol
+client is independently implemented; third-party interface references do not grant
+permission to copy unlicensed source code. See [THIRD_PARTY.md](THIRD_PARTY.md).
+
+TP-LINK and Home Assistant names identify compatible products. This community project
+is not affiliated with or endorsed by their owners. Its license does not license
+TP-LINK firmware, proprietary web assets, or third-party trademarks.

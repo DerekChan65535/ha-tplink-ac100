@@ -1,0 +1,177 @@
+{
+  "apmng_status": {
+    "ap_list": [
+      {
+        "ap_list_0": {
+          "mac": "02-00-00-00-00-01",
+          "entry_name": "Example%20AP%201",
+          "link_status": "1",
+          "rf_entry": [
+            {
+              "rf_client_num": "6",
+              "freq_unit": "1",
+              "freq_name": "2.4GHz",
+              "channel": "1",
+              "channel_load": "31%25"
+            },
+            {
+              "rf_client_num": "2",
+              "freq_unit": "2",
+              "freq_name": "5GHz",
+              "channel": "36",
+              "channel_load": "3%25"
+            }
+          ],
+          "led_status": "1",
+          "ip": "192.0.2.10",
+          "online_time": "9180",
+          "model_name": "TL-XAP1506GC-PoE%2fDC%e6%98%93%e5%b1%95%e7%89%88",
+          "entry_id": "0",
+          "telnet_status": "0"
+        }
+      },
+      {
+        "ap_list_1": {
+          "mac": "02-00-00-00-00-02",
+          "entry_name": "Example%20AP%202",
+          "link_status": "2",
+          "rf_entry": [
+            {
+              "rf_client_num": "0",
+              "freq_unit": "1",
+              "freq_name": "2.4GHz",
+              "channel": "0",
+              "channel_load": "--"
+            },
+            {
+              "rf_client_num": "0",
+              "freq_unit": "2",
+              "freq_name": "5GHz",
+              "channel": "0",
+              "channel_load": "--"
+            }
+          ],
+          "led_status": "0",
+          "ip": "0.0.0.0",
+          "online_time": "0",
+          "model_name": "TL-XAP3002GI-PoE%20%e8%96%84%e6%ac%be%ef%bc%88%e6%96%b9%ef%bc%89%e6%98%93%e5%b1%95%e7%89%88",
+          "entry_id": "1",
+          "telnet_status": "0"
+        }
+      },
+      {
+        "ap_list_2": {
+          "mac": "02-00-00-00-00-03",
+          "entry_name": "Example%20AP%203",
+          "link_status": "1",
+          "rf_entry": [
+            {
+              "rf_client_num": "1",
+              "freq_unit": "1",
+              "freq_name": "2.4GHz",
+              "channel": "1",
+              "channel_load": "18%25"
+            },
+            {
+              "rf_client_num": "2",
+              "freq_unit": "2",
+              "freq_name": "5GHz",
+              "channel": "36",
+              "channel_load": "2%25"
+            }
+          ],
+          "led_status": "1",
+          "ip": "192.0.2.11",
+          "online_time": "9244",
+          "model_name": "TL-XAP1506GC-PoE%2fDC%e6%98%93%e5%b1%95%e7%89%88",
+          "entry_id": "2",
+          "telnet_status": "0"
+        }
+      },
+      {
+        "ap_list_3": {
+          "mac": "02-00-00-00-00-04",
+          "entry_name": "Example%20AP%204",
+          "link_status": "1",
+          "rf_entry": [
+            {
+              "rf_client_num": "1",
+              "freq_unit": "1",
+              "freq_name": "2.4GHz",
+              "channel": "1",
+              "channel_load": "16%25"
+            }
+          ],
+          "led_status": "1",
+          "ip": "192.0.2.12",
+          "online_time": "9160",
+          "model_name": "TL-AP453C-PoE",
+          "entry_id": "3",
+          "telnet_status": "0"
+        }
+      },
+      {
+        "ap_list_4": {
+          "mac": "02-00-00-00-00-05",
+          "entry_name": "Example%20AP%203",
+          "link_status": "2",
+          "rf_entry": [
+            {
+              "rf_client_num": "0",
+              "freq_unit": "1",
+              "freq_name": "2.4GHz",
+              "channel": "-1",
+              "channel_load": "--"
+            },
+            {
+              "rf_client_num": "0",
+              "freq_unit": "2",
+              "freq_name": "5GHz",
+              "channel": "-1",
+              "channel_load": "--"
+            }
+          ],
+          "led_status": "0",
+          "ip": "192.0.2.13",
+          "online_time": "0",
+          "model_name": "TL-XAP1506GC-PoE%2fDC%e6%98%93%e5%b1%95%e7%89%88",
+          "entry_id": "4",
+          "telnet_status": "0"
+        }
+      },
+      {
+        "ap_list_5": {
+          "mac": "02-00-00-00-00-06",
+          "entry_name": "Example%20AP%205",
+          "link_status": "1",
+          "rf_entry": [
+            {
+              "rf_client_num": "1",
+              "freq_unit": "1",
+              "freq_name": "2.4GHz",
+              "channel": "1",
+              "channel_load": "10%25"
+            },
+            {
+              "rf_client_num": "1",
+              "freq_unit": "2",
+              "freq_name": "5GHz",
+              "channel": "149",
+              "channel_load": "1%25"
+            }
+          ],
+          "led_status": "1",
+          "ip": "192.0.2.14",
+          "online_time": "9242",
+          "model_name": "TL-XAP1506GC-PoE%2fDC%e6%98%93%e5%b1%95%e7%89%88",
+          "entry_id": "5",
+          "telnet_status": "0"
+        }
+      }
+    ],
+    "count": {
+      "ap_list": 6
+    }
+  },
+  "error_code": 0
+}

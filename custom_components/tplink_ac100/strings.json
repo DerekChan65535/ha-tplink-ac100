@@ -1,0 +1,119 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to a TL-AC100 controller",
+        "description": "Connect to the local controller. Setup and polling are read-only. Plain HTTP does not protect credentials or traffic; use a trusted network.",
+        "data": {
+          "host": "Controller address",
+          "username": "Username",
+          "password": "Password"
+        },
+        "data_description": {
+          "host": "Hostname, IP address, or HTTP(S) origin, optionally including a port. Do not include a URL path.",
+          "username": "An existing controller account.",
+          "password": "The controller account password."
+        }
+      },
+      "reconfigure": {
+        "title": "Change the controller address",
+        "description": "The new address must belong to the same controller.",
+        "data": {
+          "host": "Controller address"
+        },
+        "data_description": {
+          "host": "Hostname, IP address, or HTTP(S) origin, optionally including a port."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate the controller",
+        "description": "Enter the current credentials for this controller.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        },
+        "data_description": {
+          "username": "An existing controller account.",
+          "password": "The current controller account password."
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Authentication failed. Check the username and password, or whether another administrator session blocks access.",
+      "cannot_connect": "Could not connect to the controller.",
+      "unsupported_device": "This device is not a supported TL-AC100 controller.",
+      "unknown": "The controller returned an unsupported response or an unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This controller is already configured.",
+      "wrong_device": "The address belongs to a different controller. The existing configuration has not been changed.",
+      "reauth_successful": "Authentication was updated successfully.",
+      "reconfigure_successful": "The controller address was updated successfully."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Controller management",
+        "description": "Monitoring is read-only by default. Enable control only if you want to send explicit management actions. Reboot buttons remain disabled until individually enabled; pressing one interrupts service.",
+        "data": {
+          "enable_control": "Enable device control"
+        },
+        "data_description": {
+          "enable_control": "Allow explicit indicator LED and reboot actions. This setting does not run any action by itself."
+        }
+      }
+    }
+  },
+  "entity": {
+    "switch": {
+      "led": {
+        "name": "Indicator LED"
+      }
+    },
+    "button": {
+      "reboot": {
+        "name": "Reboot"
+      }
+    },
+    "sensor": {
+      "cpu_usage": {
+        "name": "CPU {core} usage"
+      },
+      "memory_usage": {
+        "name": "Memory usage"
+      },
+      "uptime": {
+        "name": "Uptime"
+      },
+      "online_access_points": {
+        "name": "Online access points"
+      },
+      "total_access_points": {
+        "name": "Total access points"
+      },
+      "connected_clients": {
+        "name": "Connected clients"
+      }
+    },
+    "binary_sensor": {
+      "connectivity": {
+        "name": "Connectivity"
+      }
+    }
+  },
+  "exceptions": {
+    "control_disabled": {
+      "message": "Device control is disabled. Enable it in the integration options before using management actions."
+    },
+    "invalid_auth": {
+      "message": "Controller authentication failed. Reauthenticate the integration."
+    },
+    "control_failed": {
+      "message": "The controller could not complete the action. Check the device state before trying again."
+    },
+    "control_unavailable": {
+      "message": "The device is offline or is not managed by this controller."
+    }
+  }
+}

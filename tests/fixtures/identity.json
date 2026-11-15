@@ -1,0 +1,28 @@
+{
+  "error_code": 0,
+  "interface": {
+    "count": {
+      "interface": 0
+    },
+    "interface": [
+      {
+        "lan": {
+          "t_uptime": "9545",
+          "dns2": "192.0.2.29",
+          "t_type": "ethernet",
+          "t_linktype": "static",
+          "t_isup": true,
+          "gwaddr": "192.0.2.30",
+          "t_bindif": [
+            "eth0"
+          ],
+          "netmask": "192.0.2.31",
+          "ipaddr": "192.0.2.32",
+          "t_name": "lan",
+          "dns1": "192.0.2.33",
+          "macaddr": "02-00-00-00-00-15"
+        }
+      }
+    ]
+  }
+}
