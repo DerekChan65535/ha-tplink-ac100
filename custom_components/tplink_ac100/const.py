@@ -9,10 +9,13 @@ NAME = "TP-Link AC100"
 CONF_ENABLE_CONTROL = "enable_control"
 DEFAULT_ENABLE_CONTROL = False
 UPDATE_INTERVAL = timedelta(seconds=60)
+MONITORING_INTERVAL = timedelta(minutes=5)
+CONFIGURATION_INTERVAL = timedelta(minutes=15)
 PLATFORMS = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
     Platform.DEVICE_TRACKER,
     Platform.SENSOR,
     Platform.SWITCH,
+    Platform.UPDATE,
 ]

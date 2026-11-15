@@ -83,13 +83,13 @@
     },
     "sensor": {
       "cpu_usage": {
-        "name": "CPU {core} usage"
+        "name": "CPU core {core} usage"
       },
       "memory_usage": {
         "name": "Memory usage"
       },
       "uptime": {
-        "name": "Uptime"
+        "name": "Uptime (seconds)"
       },
       "online_access_points": {
         "name": "Online access points"
@@ -99,11 +99,347 @@
       },
       "connected_clients": {
         "name": "Connected clients"
+      },
+      "interface_transmit_rate": {
+        "name": "{interface} transmit speed"
+      },
+      "interface_receive_rate": {
+        "name": "{interface} receive speed"
+      },
+      "interface_transmit_packet_rate": {
+        "name": "{interface} transmit packet rate"
+      },
+      "interface_receive_packet_rate": {
+        "name": "{interface} receive packet rate"
+      },
+      "interface_transmitted_bytes": {
+        "name": "{interface} transmitted data"
+      },
+      "interface_received_bytes": {
+        "name": "{interface} received data"
+      },
+      "port_link_speed": {
+        "name": "Port {port} link speed"
+      },
+      "last_restart": {
+        "name": "Last restart"
+      },
+      "ip_address": {
+        "name": "IP address"
+      },
+      "radio_connected_clients": {
+        "name": "{band} connected clients"
+      },
+      "radio_channel": {
+        "name": "{band} channel"
+      },
+      "radio_channel_load": {
+        "name": "{band} channel load"
+      },
+      "band_navigation_5g_threshold": {
+        "name": "Band navigation 5 GHz client threshold"
+      },
+      "band_navigation_difference_threshold": {
+        "name": "Band navigation client difference threshold"
+      },
+      "band_navigation_max_failures": {
+        "name": "Band navigation maximum failures"
+      },
+      "load_balance_mode": {
+        "name": "Load balancing mode",
+        "state": {
+          "session": "Session based"
+        }
+      },
+      "load_balance_threshold": {
+        "name": "Load balancing client threshold"
+      },
+      "load_balance_difference_threshold": {
+        "name": "Load balancing client difference threshold"
+      },
+      "load_balance_max_failures": {
+        "name": "Load balancing maximum failures"
+      },
+      "load_balance_rssi_threshold": {
+        "name": "Load balancing RSSI threshold"
+      },
+      "rrm_band": {
+        "name": "Optimization band",
+        "state": {
+          "both": "Both bands",
+          "2_4ghz": "2.4 GHz",
+          "5ghz": "5 GHz"
+        }
+      },
+      "rrm_2g_bandwidth": {
+        "name": "Optimization 2.4 GHz channel width",
+        "state": {
+          "20mhz": "20 MHz"
+        }
+      },
+      "rrm_5g_bandwidth": {
+        "name": "Optimization 5 GHz channel width",
+        "state": {
+          "20mhz": "20 MHz",
+          "40mhz": "40 MHz",
+          "80mhz": "80 MHz",
+          "160mhz": "160 MHz"
+        }
+      },
+      "rrm_coverage_threshold": {
+        "name": "Optimization coverage threshold"
+      },
+      "rrm_max_power": {
+        "name": "Optimization maximum power"
+      },
+      "rrm_min_power": {
+        "name": "Optimization minimum power"
+      },
+      "rrm_schedule_day": {
+        "name": "Scheduled optimization day",
+        "state": {
+          "every_day": "Every day",
+          "sunday": "Sunday",
+          "monday": "Monday",
+          "tuesday": "Tuesday",
+          "wednesday": "Wednesday",
+          "thursday": "Thursday",
+          "friday": "Friday",
+          "saturday": "Saturday"
+        }
+      },
+      "rrm_schedule_time": {
+        "name": "Scheduled optimization time"
+      },
+      "roaming_2g_rssi_threshold": {
+        "name": "Roaming 2.4 GHz RSSI threshold"
+      },
+      "roaming_5g_rssi_threshold": {
+        "name": "Roaming 5 GHz RSSI threshold"
+      },
+      "roaming_high_performance_rssi_threshold": {
+        "name": "Roaming high-performance RSSI threshold"
+      },
+      "roaming_2g_rate_threshold": {
+        "name": "Roaming 2.4 GHz rate threshold"
+      },
+      "roaming_5g_rate_threshold": {
+        "name": "Roaming 5 GHz rate threshold"
+      },
+      "roaming_2g_low_rssi_kick_threshold": {
+        "name": "Roaming 2.4 GHz weak-signal disconnect threshold"
+      },
+      "roaming_5g_low_rssi_kick_threshold": {
+        "name": "Roaming 5 GHz weak-signal disconnect threshold"
+      },
+      "roaming_2g_low_rate_kick_threshold": {
+        "name": "Roaming 2.4 GHz low-rate disconnect threshold"
+      },
+      "roaming_5g_low_rate_kick_threshold": {
+        "name": "Roaming 5 GHz low-rate disconnect threshold"
+      },
+      "roaming_check_interval": {
+        "name": "Roaming threshold check interval"
+      },
+      "roaming_difference": {
+        "name": "Roaming difference"
+      },
+      "roaming_blacklist_time": {
+        "name": "Roaming client blocking time"
+      },
+      "roaming_probe_report_interval": {
+        "name": "Roaming client probe report interval"
+      },
+      "broadcast_storm_rate": {
+        "name": "Broadcast storm suppression rate"
+      },
+      "broadcast_storm_rate_type": {
+        "name": "Broadcast storm suppression rate type",
+        "state": {
+          "predefined": "Predefined",
+          "user_defined": "User-defined"
+        }
+      },
+      "igmp_unknown_multicast": {
+        "name": "Unknown multicast packets",
+        "state": {
+          "forward": "Forward",
+          "drop": "Drop"
+        }
+      },
+      "igmp_2g_multicast_rate": {
+        "name": "2.4 GHz broadcast and multicast rate"
+      },
+      "igmp_5g_multicast_rate": {
+        "name": "5 GHz broadcast and multicast rate"
+      },
+      "device_alias": {
+        "name": "Device name"
+      },
+      "ntp_primary_server": {
+        "name": "Primary NTP server"
+      },
+      "ntp_secondary_server": {
+        "name": "Secondary NTP server"
+      },
+      "time_zone_offset": {
+        "name": "Time zone offset from UTC"
+      },
+      "time_source": {
+        "name": "Time source",
+        "state": {
+          "network": "Network (NTP)",
+          "manual": "Manual",
+          "cloud": "Cloud"
+        }
+      },
+      "web_session_timeout": {
+        "name": "Web session timeout"
+      },
+      "login_max_attempts": {
+        "name": "Maximum login attempts"
+      },
+      "login_lock_duration": {
+        "name": "Login lock duration"
+      },
+      "ap_reboot_day": {
+        "name": "Scheduled AP reboot day",
+        "state": {
+          "every_day": "Every day",
+          "sunday": "Sunday",
+          "monday": "Monday",
+          "tuesday": "Tuesday",
+          "wednesday": "Wednesday",
+          "thursday": "Thursday",
+          "friday": "Friday",
+          "saturday": "Saturday"
+        }
+      },
+      "ap_reboot_time": {
+        "name": "Scheduled AP reboot time"
+      },
+      "wireless_report_protocol": {
+        "name": "Wireless report protocol",
+        "state": {
+          "tcp": "TCP",
+          "udp": "UDP",
+          "http": "HTTP"
+        }
+      },
+      "wireless_report_interval": {
+        "name": "Wireless report interval"
+      },
+      "wireless_report_max_payload": {
+        "name": "Wireless report maximum payload"
+      },
+      "cpu_usage_average": {
+        "name": "CPU usage"
       }
     },
     "binary_sensor": {
       "connectivity": {
         "name": "Connectivity"
+      },
+      "configuration_not_saved": {
+        "name": "Configuration not saved"
+      },
+      "unknown_access_points": {
+        "name": "Unknown access points"
+      },
+      "access_point_limit_reached": {
+        "name": "Access point limit reached"
+      },
+      "ap_upgrade_in_progress": {
+        "name": "AP firmware upgrade in progress"
+      },
+      "radio_optimization_in_progress": {
+        "name": "Radio optimization in progress"
+      },
+      "controller_writable": {
+        "name": "Management session writable"
+      },
+      "cloud_bound": {
+        "name": "Cloud account linked"
+      },
+      "cloud_management_enabled": {
+        "name": "Cloud management enabled"
+      },
+      "port_connectivity": {
+        "name": "Port {port} connectivity"
+      },
+      "band_navigation_enabled": {
+        "name": "Band navigation"
+      },
+      "load_balance_enabled": {
+        "name": "Load balancing"
+      },
+      "rrm_channel_optimization": {
+        "name": "Channel optimization"
+      },
+      "rrm_power_optimization": {
+        "name": "Power optimization"
+      },
+      "rrm_scheduled_optimization": {
+        "name": "Scheduled optimization"
+      },
+      "roaming_11k": {
+        "name": "Roaming 802.11k"
+      },
+      "roaming_11v": {
+        "name": "Roaming 802.11v"
+      },
+      "roaming_11r": {
+        "name": "Roaming 802.11r"
+      },
+      "roaming_2g_low_rssi_kick": {
+        "name": "Roaming 2.4 GHz disconnect weak-signal clients"
+      },
+      "roaming_5g_low_rssi_kick": {
+        "name": "Roaming 5 GHz disconnect weak-signal clients"
+      },
+      "roaming_2g_low_rate_kick": {
+        "name": "Roaming 2.4 GHz disconnect low-rate clients"
+      },
+      "roaming_5g_low_rate_kick": {
+        "name": "Roaming 5 GHz disconnect low-rate clients"
+      },
+      "roaming_probe_report": {
+        "name": "Roaming client probe reporting"
+      },
+      "broadcast_storm_control_enabled": {
+        "name": "Broadcast storm suppression"
+      },
+      "igmp_snooping_enabled": {
+        "name": "IGMP snooping"
+      },
+      "ap_detection_enabled": {
+        "name": "AP management detection"
+      },
+      "ap_telnet_enabled": {
+        "name": "AP Telnet management"
+      },
+      "ap_management_enabled": {
+        "name": "AP management"
+      },
+      "ap_auto_adopt_enabled": {
+        "name": "Automatic AP adoption"
+      },
+      "ap_offline_self_management": {
+        "name": "AP offline self-management default"
+      },
+      "ap_auto_reboot_enabled": {
+        "name": "Scheduled AP reboot"
+      },
+      "wireless_report_enabled": {
+        "name": "Wireless information reporting"
+      },
+      "security_audit_enabled": {
+        "name": "Security audit"
+      }
+    },
+    "update": {
+      "firmware": {
+        "name": "Firmware"
       }
     }
   },

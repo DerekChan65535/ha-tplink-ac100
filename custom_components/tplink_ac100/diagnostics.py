@@ -4,7 +4,12 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_ENABLE_CONTROL, UPDATE_INTERVAL
+from .const import (
+    CONF_ENABLE_CONTROL,
+    CONFIGURATION_INTERVAL,
+    MONITORING_INTERVAL,
+    UPDATE_INTERVAL,
+)
 from .coordinator import Ac100ConfigEntry
 
 
@@ -14,6 +19,8 @@ async def async_get_config_entry_diagnostics(
     """Do not include raw responses or config-entry data in downloadable diagnostics."""
     coordinator = entry.runtime_data
     controller = coordinator.data.controller
+    monitoring = coordinator.data.monitoring
+    configuration = coordinator.data.configuration
     return {
         "model": controller.model,
         "hardware_version": controller.hardware_version,
@@ -24,6 +31,24 @@ async def async_get_config_entry_diagnostics(
         "last_update_success": coordinator.last_update_success,
         "poll_interval_seconds": int(UPDATE_INTERVAL.total_seconds()),
         "management_enabled": entry.options.get(CONF_ENABLE_CONTROL, False),
+        "optional_poll_intervals_seconds": {
+            "monitoring": int(MONITORING_INTERVAL.total_seconds()),
+            "configuration": int(CONFIGURATION_INTERVAL.total_seconds()),
+        },
+        "monitoring": {
+            "available": monitoring is not None,
+            "available_sources": sorted(monitoring.available_sections) if monitoring else [],
+            "physical_ports": len(monitoring.ports) if monitoring else 0,
+            "interfaces": len(monitoring.interfaces) if monitoring else 0,
+            "access_point_firmware_records": len(monitoring.ap_firmware) if monitoring else 0,
+        },
+        "configuration": {
+            "available": configuration is not None,
+            "available_sources": (
+                sorted(configuration.available_sections) if configuration else []
+            ),
+            "scalar_fields": len(configuration.values) if configuration else 0,
+        },
         "access_points": {
             "total": len(coordinator.data.aps),
             "online": sum(ap.is_online for ap in coordinator.data.aps),

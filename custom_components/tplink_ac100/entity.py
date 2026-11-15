@@ -1,10 +1,11 @@
 """Shared native entity helpers for TP-Link AC100."""
 
-from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import Ac100Coordinator
+from .device_info import ap_device_info
 from .models import AccessPoint
 
 
@@ -34,11 +35,4 @@ class Ac100Entity(CoordinatorEntity[Ac100Coordinator]):
             return DeviceInfo(identifiers={(DOMAIN, self.coordinator.data.controller.mac)})
         if (ap := self.access_point) is None:
             return DeviceInfo(identifiers={(DOMAIN, self.ap_mac)})
-        return DeviceInfo(
-            identifiers={(DOMAIN, self.ap_mac)},
-            connections={(CONNECTION_NETWORK_MAC, self.ap_mac)},
-            name=ap.name,
-            manufacturer="TP-Link",
-            model=ap.model,
-            via_device_id=self.coordinator.controller_device_id,
-        )
+        return ap_device_info(self.coordinator, ap)

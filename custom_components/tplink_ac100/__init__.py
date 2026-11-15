@@ -1,13 +1,15 @@
 """Local Home Assistant support for TP-Link TL-AC100 controllers."""
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import Ac100Api
 from .const import DOMAIN, PLATFORMS
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
+from .device_info import ap_device_info, controller_device_info
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: Ac100ConfigEntry) -> bool:
@@ -19,18 +21,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: Ac100ConfigEntry) -> boo
         entry.data[CONF_PASSWORD],
     )
     coordinator = Ac100Coordinator(hass, entry, api)
+    registry = dr.async_get(hass)
     try:
         await coordinator.async_config_entry_first_refresh()
-        controller = coordinator.data.controller
-        device = dr.async_get(hass).async_get_or_create(
-            config_entry_id=entry.entry_id,
-            identifiers={(DOMAIN, controller.mac)},
-            connections={(dr.CONNECTION_NETWORK_MAC, controller.mac)},
-            manufacturer="TP-Link",
-            model=controller.model,
-            name=f"TP-Link {controller.model}",
-            sw_version=controller.firmware_version,
-            hw_version=controller.hardware_version,
+        device = registry.async_get_or_create_from_info(
+            config_entry_id=entry.entry_id, device_info=controller_device_info(coordinator)
         )
         coordinator.controller_device_id = device.id
         entry.runtime_data = coordinator
@@ -38,7 +33,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: Ac100ConfigEntry) -> boo
     except BaseException:
         await coordinator.async_shutdown()
         raise
+
+    @callback
+    def refresh_devices() -> None:
+        """Keep device fields current, as entities describe their device only when added."""
+        if not coordinator.last_update_success:
+            return
+        infos = [controller_device_info(coordinator)]
+        infos.extend(ap_device_info(coordinator, ap) for ap in coordinator.data.aps)
+        for info in infos:
+            registry.async_get_or_create_from_info(config_entry_id=entry.entry_id, device_info=info)
+
+    entry.async_on_unload(coordinator.async_add_listener(refresh_devices))
     return True
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: Ac100ConfigEntry, device: dr.DeviceEntry
+) -> bool:
+    """Allow deleting only devices that the controller no longer reports."""
+    if entry.state is not ConfigEntryState.LOADED:
+        return False
+    data = entry.runtime_data.data
+    current = {
+        data.controller.mac,
+        *(ap.mac for ap in data.aps),
+        *(client.mac for client in data.clients),
+    }
+    addresses = {value for domain, value in device.identifiers if domain == DOMAIN} | {
+        value for kind, value in device.connections if kind == dr.CONNECTION_NETWORK_MAC
+    }
+    return not addresses & current
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: Ac100ConfigEntry) -> None:

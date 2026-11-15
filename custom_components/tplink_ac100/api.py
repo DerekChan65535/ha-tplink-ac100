@@ -9,16 +9,32 @@ import json
 import logging
 import math
 import re
+from collections.abc import Awaitable, Mapping
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
 
 import aiohttp
 
 from .models import AccessPoint, ApRadio, Client, ClientRadio, Controller, Snapshot
+from .monitoring import (
+    CONFIGURATION_FIELDS,
+    CONFIGURATION_SOURCES,
+    ApFirmware,
+    ConfigField,
+    ConfigurationState,
+    FirmwareAvailability,
+    InterfaceTraffic,
+    MonitoringState,
+    PortStatus,
+    Scalar,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 _PAGE_SIZE = 10
+# Optional tables are bounded by the AC100's limits (100 APs, 60 interfaces, 5 ports): a larger
+# count is treated as invalid instead of paged through.
+_MAX_OPTIONAL_ROWS = 256
 _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=15)
 _LEGACY_SALT = "RDpbLfCPsJZ7fiv"
 _LEGACY_ALPHABET = (
@@ -218,6 +234,197 @@ def _parse_client(row: dict[str, Any]) -> Client:
     )
 
 
+# Top-bar status enums (the controller UI's root.html refreshConfigStatus). The UI itself only
+# distinguishes "Not Saved", upgrade status "3" and RRM status outside {"0", "7"}; a value in any
+# other form stays None here instead of being guessed as idle.
+_CONFIG_NOT_SAVED = {"Saved": False, "Saving": False, "Not Saved": True}
+_FLAG = {"0": False, "1": True}
+_UPGRADE_RUNNING = {"0": False, "1": False, "2": False, "3": True, "4": False, "5": False}
+_RRM_RUNNING = {"0": False, "7": False} | {str(code): True for code in range(1, 7)}
+_STATUS_FIELDS = (
+    ("system.cfg_status", "status", "configuration_not_saved", _CONFIG_NOT_SAVED),
+    ("apmng_set_status.status", "unknown_ap_flag", "unknown_access_points", _FLAG),
+    ("apmng_set_status.status", "ap_full_flag", "access_point_limit_reached", _FLAG),
+    ("apmng_upgrade.upgrade_status", "status", "ap_upgrade_in_progress", _UPGRADE_RUNNING),
+    ("apmng_rrm.rrm_status", "status", "radio_optimization_in_progress", _RRM_RUNNING),
+    ("administrator.auth_status", "status", "controller_writable", _FLAG),
+    ("cloud_config.bind_info", "bind_status", "cloud_bound", _FLAG),
+    ("cloud_config.conf_mngt", "mngt_switch", "cloud_management_enabled", _FLAG),
+)
+_PORT_STATES = {"connected": True, "disconnected": False, "disable": False}
+_NAME = re.compile(r"[A-Za-z0-9_.:-]{1,32}")
+_MBPS = re.compile(r"([0-9]{1,5})M")
+_PLACEHOLDER = re.compile(r"-*|undefined.*", re.IGNORECASE)
+
+# The UI's top-bar poll without apmng_mesh (it holds the backhaul key) and ha_mngt. This exact
+# subset of modules has not been tested on a controller; a rejected request is retried per module.
+_STATUS_SECTIONS = {
+    "system": ("cfg_status",),
+    "apmng_upgrade": ("upgrade_status",),
+    "apmng_set_status": ("status",),
+    "apmng_rrm": ("rrm_status",),
+    "cloud_config": ("conf_mngt", "bind_info"),
+    "administrator": ("auth_status",),
+}
+_FIRMWARE_SECTIONS = {"cloud_config": ("new_firmware", "upgrade_info")}
+
+
+def _choice[T](states: Mapping[str, T], value: Any) -> T | None:
+    return states.get(value) if isinstance(value, str) else None
+
+
+def _text(value: Any, limit: int = 64) -> str | None:
+    """A short printable string, or None."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text if 0 < len(text) <= limit and text.isprintable() else None
+
+
+def _name(value: Any) -> str | None:
+    return value if isinstance(value, str) and _NAME.fullmatch(value) else None
+
+
+def _version(value: Any) -> str | None:
+    """A firmware or hardware version; the controller's blank placeholders are not versions."""
+    text = _text(value)
+    return None if text is None or _PLACEHOLDER.fullmatch(text) else text
+
+
+def _finite(value: Any) -> float | None:
+    return None if isinstance(value, bool) else _number(value)
+
+
+def _rate(value: Any) -> float | None:
+    number = _finite(value)
+    return number if number is not None and number >= 0 else None
+
+
+def _count(value: Any) -> int | None:
+    """A non-negative counter; digit strings keep exact precision."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value if value >= 0 else None
+    if isinstance(value, str) and value.isascii() and value.isdigit() and len(value) <= 20:
+        return int(value)
+    return None
+
+
+def _sections_request(wanted: Mapping[str, tuple[str, ...]]) -> dict[str, Any]:
+    return {"method": "get", **{module: {"name": list(names)} for module, names in wanted.items()}}
+
+
+def _present_sections(
+    result: dict[str, Any], wanted: Mapping[str, tuple[str, ...]]
+) -> dict[str, dict[str, Any]]:
+    """Keep only the requested sections that came back as objects, keyed ``module.section``."""
+    found: dict[str, dict[str, Any]] = {}
+    for module, names in wanted.items():
+        data = result.get(module)
+        if not isinstance(data, dict):
+            continue
+        for name in names:
+            if isinstance(section := data.get(name), dict):
+                found[f"{module}.{name}"] = section
+    return found
+
+
+def _parse_status(sections: dict[str, dict[str, Any]]) -> dict[str, Scalar]:
+    """Project the known status sections; a value in an unrecognised form is None."""
+    values: dict[str, Scalar] = {}
+    for source, wire_field, key, states in _STATUS_FIELDS:
+        if (section := sections.get(source)) is not None:
+            values[key] = _choice(states, section.get(wire_field))
+    return values
+
+
+def _parse_firmware(sections: dict[str, dict[str, Any]]) -> FirmwareAvailability | None:
+    """Only a set cloud announcement (new_firmware.fw_new_notify) makes upgrade_info current."""
+    info = sections.get("cloud_config.upgrade_info")
+    notice = sections.get("cloud_config.new_firmware")
+    if info is None or notice is None:
+        return None
+    announced = _choice(_FLAG, notice.get("fw_new_notify"))
+    if announced is None:
+        return None
+    return FirmwareAvailability(_version(info.get("version")) if announced else None)
+
+
+def _parse_ap_firmware(rows: list[dict[str, Any]]) -> tuple[ApFirmware, ...]:
+    """Map only the identity and versions; the row's name, model and upgrade status are dropped."""
+    items: dict[str, ApFirmware] = {}
+    for row in rows:
+        mac = _mac(row.get("mac"))
+        items[mac] = ApFirmware(
+            mac,
+            _version(row.get("sw_version")),
+            _version(row.get("hw_version")),
+            _version(row.get("new_sw_version")),
+        )
+    return tuple(items.values())
+
+
+def _parse_port(row: dict[str, Any]) -> PortStatus:
+    switch = _name(row.get("switch_dev"))
+    section = _name(row.get(".name"))
+    label = _text(row.get("port_name"), 32)
+    if switch is None or section is None or label is None:
+        raise Ac100ProtocolError("Invalid port data")
+    connected = _choice(_PORT_STATES, row.get("port_state"))
+    speed = row.get("link_speed")
+    link_speed = _MBPS.fullmatch(speed) if connected and isinstance(speed, str) else None
+    return PortStatus(
+        port_id=f"{switch}_{section}",
+        name=label,
+        connected=connected,
+        speed_mbps=int(link_speed[1]) if link_speed else None,
+    )
+
+
+def _parse_ports(rows: list[dict[str, Any]]) -> tuple[PortStatus, ...]:
+    ports = {port.port_id: port for port in map(_parse_port, rows)}
+    if len(ports) != len(rows):
+        raise Ac100ProtocolError("Duplicate port identity")
+    return tuple(ports.values())
+
+
+def _parse_interface(row: dict[str, Any]) -> InterfaceTraffic:
+    """The rates are KB/s and packets/s (the UI's column units), counters are totals."""
+    name = _name(row.get("interface"))
+    if name is None:
+        raise Ac100ProtocolError("Invalid interface statistics")
+    return InterfaceTraffic(
+        name,
+        _rate(row.get("tx_bps")),
+        _rate(row.get("rx_bps")),
+        _rate(row.get("tx_pps")),
+        _rate(row.get("rx_pps")),
+        _count(row.get("tx_bytes")),
+        _count(row.get("rx_bytes")),
+    )
+
+
+def _config_value(item: ConfigField, raw: Any) -> Scalar:
+    if item.kind in {"bool", "enum"}:
+        return _choice(dict(item.mapping), raw)
+    if item.kind == "text":
+        return _text(raw)
+    number = _finite(raw)
+    if number is None:
+        return None
+    number += item.offset
+    return int(number) if number.is_integer() else number
+
+
+def _parse_configuration(sections: dict[str, dict[str, Any]]) -> ConfigurationState:
+    """Read exactly the catalogued fields; every other field of a section is ignored."""
+    values = {
+        item.key: _config_value(item, sections[item.source].get(item.field))
+        for item in CONFIGURATION_FIELDS
+        if item.source in sections
+    }
+    return ConfigurationState(values, frozenset(sections))
+
+
 class Ac100Api:
     """An AC100 client that shares, but never owns, an aiohttp session."""
 
@@ -360,24 +567,24 @@ class Ac100Api:
             return await self._post(f"/stok={quote(self._stok, safe='')}/ds", data)
 
     async def _table(
-        self, module: str, table: str, filters: list[dict[str, Any]]
+        self,
+        module: str,
+        table: str,
+        filters: list[dict[str, Any]] | None,
+        *,
+        max_rows: int | None = None,
     ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         start = 0
         target: int | None = None
         while target is None or start < target:
-            result = await self._request(
-                {
-                    "method": "get",
-                    module: {
-                        "table": table,
-                        "filter": filters,
-                        "para": {"start": start, "end": start + _PAGE_SIZE - 1},
-                    },
-                }
-            )
+            query: dict[str, Any] = {"table": table}
+            if filters is not None:
+                query["filter"] = filters
+            query["para"] = {"start": start, "end": start + _PAGE_SIZE - 1}
+            result = await self._request({"method": "get", module: query})
             count = _integer(_section(result, module, "count").get(table))
-            if count is None or count < 0:
+            if count is None or count < 0 or (max_rows is not None and count > max_rows):
                 raise Ac100ProtocolError("Controller table count is invalid")
             target = count if target is None else min(target, count)
             page = _rows(result, module, table)
@@ -433,6 +640,112 @@ class Ac100Api:
             return Snapshot(
                 controller=controller, aps=tuple(aps.values()), clients=tuple(clients.values())
             )
+
+    async def _optional[T](self, read: Awaitable[T]) -> T | None:
+        """Await one optional read: a rejected or malformed answer is None, nothing else is."""
+        try:
+            return await read
+        except Ac100ProtocolError:
+            if self._stok is None:
+                raise  # a failed sign-in, not a problem with this source
+            return None
+
+    async def _get_sections(
+        self, wanted: Mapping[str, tuple[str, ...]]
+    ) -> dict[str, dict[str, Any]]:
+        """GET named sections, keyed ``module.section``; one that cannot be read is absent.
+
+        A rejected multi-module request is retried one module at a time, so one unreadable
+        module does not hide the others.
+        """
+        result = await self._optional(self._request(_sections_request(wanted)))
+        if result is not None:
+            return _present_sections(result, wanted)
+        found: dict[str, dict[str, Any]] = {}
+        if len(wanted) > 1:
+            for module, names in wanted.items():
+                single = {module: names}
+                result = await self._optional(self._request(_sections_request(single)))
+                if result is not None:
+                    found |= _present_sections(result, single)
+        return found
+
+    async def _read_ap_firmware(self) -> tuple[ApFirmware, ...]:
+        rows = await self._table(
+            "apmng_upgrade",
+            "ap_list",
+            [{"group_id": ["-1"], "ap_role": ["cap", "normal"]}],
+            max_rows=_MAX_OPTIONAL_ROWS,
+        )
+        return _parse_ap_firmware(rows)
+
+    async def _read_ports(self) -> tuple[PortStatus, ...]:
+        # Like the UI, one unpaged request: the table is the controller's few physical ports.
+        result = await self._request({"method": "get", "port": {"table": "port"}})
+        rows = _rows(result, "port", "port")
+        if len(rows) > _MAX_OPTIONAL_ROWS:
+            raise Ac100ProtocolError("Controller returned too many ports")
+        return _parse_ports(rows)
+
+    async def _read_interfaces(self) -> tuple[InterfaceTraffic, ...]:
+        rows = await self._table("system", "ifstat_list", None, max_rows=_MAX_OPTIONAL_ROWS)
+        return tuple(map(_parse_interface, rows))
+
+    async def async_get_monitoring(self) -> MonitoringState:
+        """Read slow, credential-free status; a source that is rejected or garbled is left out.
+
+        Every request is a GET under the shared lock and session. Connection, authentication and
+        session errors propagate; the core snapshot is a separate call and is never affected.
+        """
+        async with self._lock:
+            self._ensure_open()
+            status = await self._get_sections(_STATUS_SECTIONS)
+            values = _parse_status(status)
+            available = set(status)
+            firmware = _parse_firmware(await self._get_sections(_FIRMWARE_SECTIONS))
+            if firmware is not None:
+                available.add("cloud_config.upgrade_info")
+            tables: dict[str, Any] = {}
+            for source, read in (
+                ("apmng_upgrade.ap_list", self._read_ap_firmware),
+                ("port.port", self._read_ports),
+                ("system.ifstat_list", self._read_interfaces),
+            ):
+                if (table := await self._optional(read())) is not None:
+                    tables[source] = table
+            available.update(tables)
+            state = MonitoringState(
+                values=values,
+                available_sections=frozenset(available),
+                firmware=firmware,
+                ap_firmware=tables.get("apmng_upgrade.ap_list", ()),
+                ports=tables.get("port.port", ()),
+                interfaces=tables.get("system.ifstat_list", ()),
+            )
+            _LOGGER.debug(
+                "Controller monitoring received (sources=%s, aps=%s, ports=%s, interfaces=%s)",
+                len(state.available_sections),
+                len(state.ap_firmware),
+                len(state.ports),
+                len(state.interfaces),
+            )
+            return state
+
+    async def async_get_configuration(self) -> ConfigurationState:
+        """Read the allow-listed CONFIGURATION_FIELDS; a section that cannot be read is left out.
+
+        Every request is a GET under the shared lock and session. Connection, authentication
+        and session errors propagate. Only catalogued fields leave this method.
+        """
+        async with self._lock:
+            self._ensure_open()
+            state = _parse_configuration(await self._get_sections(CONFIGURATION_SOURCES))
+            _LOGGER.debug(
+                "Controller configuration received (sources=%s, values=%s)",
+                len(state.available_sections),
+                len(state.values),
+            )
+            return state
 
     async def _get_ap_led_wifi_sync(self, entry_id: str) -> bool | None:
         """Read one AP configuration transiently; never cache its accompanying fields."""

@@ -111,9 +111,11 @@ It requests exactly one AP configuration row using an exact `entry_id` filter. T
 controller cannot project individual fields, so the row may include AP management
 fields beyond `led_wifi_sync`; do not claim those fields are never read. Process the
 row only transiently in HA memory, extract only `led_wifi_sync`, then discard the raw
-row. It must never enter logs, diagnostics, disk storage, or retained caches. Default
-read-only polling does not query `apmng_set`. A missing/ambiguous safety result must
-block the LED write, not trigger a change to the linkage setting.
+row. It must never enter logs, diagnostics, disk storage, or retained caches. Read-only
+polling never queries the AP table `apmng_set.ap_list`. (The global AP-management
+settings section `apmng_set.settings` is read only while a settings entity is enabled,
+and only allow-listed fields are kept.) A missing/ambiguous safety result must block the
+LED write, not trigger a change to the linkage setting.
 
 Do not exercise reboots on production Wi-Fi to validate this project. Do not attach
 management actions to unattended automations before independently checking their

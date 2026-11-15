@@ -25,7 +25,7 @@ service is required.
 | AP/controller reboot | Optional, disruptive control; **not tested on live hardware**. |
 | SSID/wireless configuration changes | Not included in the initial release. |
 | Debug level logging | Native diagnostic switch; off by default, independent of device management. |
-| Default polling | **60 seconds**. |
+| Default polling | Core telemetry **60 seconds**; optional monitoring **5 minutes**; safe scalar settings **15 minutes** in the unreleased expansion. |
 
 The minimum HA version is intentional: this integration uses current HA APIs, without
 compatibility shims for older releases. A newer HA release or controller firmware may
@@ -38,6 +38,67 @@ health check. Software tests and interface evidence do not establish hardware sa
 
 Client names, addresses, and presence can be sensitive. Review which entities you
 enable and expose to dashboards, history, automations, or external services.
+
+## Monitoring expansion (unreleased)
+
+The development branch adds native readings, not an embedded controller web panel:
+
+- Controller CPU usage as the average across cores, as the web UI shows it. Per-core
+  sensors are disabled by default on new installations; existing ones are unchanged.
+- AP IP addresses, per-radio channel, channel load and connected-client sensors.
+- Controller/AP **Last restart** values rendered as uptime by Home Assistant.
+  The original **Uptime (seconds)** entities keep their unique IDs, numeric seconds,
+  and statistics. They are disabled by default only on new installations; existing
+  entity enable states and entity IDs are not rewritten.
+- Configuration-not-saved and AP alarm flags, physical-port links and negotiated
+  speeds, and interface traffic rates and byte counters.
+- Controller/AP firmware availability using the native Update platform.
+  **Installation is not supported**: firmware installation can interrupt service
+  and recovery has not been verified. Viewing availability does not start an upgrade.
+- 70 credential-free settings (roaming, band steering, load balancing, radio
+  optimization, multicast, time, session limits and AP management) as diagnostic
+  readings, disabled by default. These are readings, not switches that modify settings.
+
+Polling shares the existing single management session. The core poll remains at
+60 seconds. Status, port, interface and firmware reads run every 5 minutes. Settings
+are read every 15 minutes, and **only while at least one settings entity is enabled**.
+The slower reads are staggered, with no burst to catch up after downtime. A failed
+slower read makes its readings unavailable; old values are not presented as current.
+Downloadable diagnostics include source names and counts, not values or network identities.
+
+The controller cannot return single fields, so some requested sections contain more
+than is shown: the firmware announcement includes a download URL and release notes,
+the cloud status includes binding details, and the AP-management and reporting settings
+include proxy and server addresses. Those extra fields are dropped in memory and never
+stored, logged or included in diagnostics. Tables that hold secrets are **not requested**:
+the wireless service table (Wi-Fi/RADIUS keys, even when the web page only needs SSID
+names), the AP table with per-AP credentials, mesh backhaul settings, account and
+portal records, and certificate/configuration files.
+
+The controller uses an explicit **Save configuration** step for persistence.
+The new unsaved-configuration flag is read-only: nothing is saved automatically.
+A save action would persist *all* pending controller changes, not just HA changes,
+so it requires separate verification before being offered as a control.
+
+Client trackers remain disabled by default and no longer create one MAC-only device
+each. On upgrade, a client device is removed only when all of these hold: its tracker
+was never enabled, the device belongs only to this entry, has only that MAC connection
+and no other entity, and has no user name, area, labels or disabled state. Its tracker
+keeps the same entity ID and unique ID. All other client devices are kept unchanged.
+
+The controller device is named by its model (`TL-AC100`), APs without a name use their
+model plus the last six MAC digits, and APs with duplicate names get those digits as a
+suffix. Existing entity IDs and user-assigned device names are not changed. AP firmware
+and hardware versions are filled in when the controller reports them. The device page
+links to the AC website for troubleshooting: disable the HA entry before signing in there.
+An AP or client device that the controller no longer reports can be deleted from its
+device page; the controller and currently reported devices cannot.
+
+This expansion is being validated. It does **not** claim complete web-UI parity.
+Wireless/network changes, account and portal CRUD, file transfers, factory reset,
+and firmware installation need individual safety and recovery decisions. Nothing
+in this section means the published 0.1.0 archive or a production installation
+has already been updated.
 
 ## AP status and LED safety
 
@@ -69,9 +130,9 @@ integration requests one AP configuration row using an exact `entry_id` filter. 
 controller does not support field projection, so that row may also contain AP management
 fields. The response is processed transiently in HA memory, only `led_wifi_sync` is
 extracted, and the raw row is discarded. It is never logged, included in diagnostics,
-written to disk, or retained in a cache. Normal read-only polling does **not** read
-`apmng_set`. This is a minimal single-row read, not a claim that the controller returns
-no management fields.
+written to disk, or retained in a cache. Normal read-only polling does **not** read the AP credential table
+`apmng_set.ap_list`. Credential-free global settings are separate from that table.
+This is a minimal single-row read, not a claim that the controller returns no management fields.
 
 ## Controller login sessions
 

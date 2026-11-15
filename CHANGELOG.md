@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Added
+
+- Controller CPU usage averaged across cores (the web UI value); per-core sensors start
+  disabled on new installations.
+- Unreleased read-only expansion: AP IP and per-radio readings, native last-restart
+  values, controller configuration/alarm flags, physical-port and interface telemetry,
+  firmware availability without installation, and selected safe scalar settings.
+- Separate 5-minute monitoring and 15-minute settings reads, staggered behind the
+  existing 60-second core poll and sharing the same controller session. Settings are
+  read only while a settings entity is enabled.
+- A source the account may not read makes only its entities unavailable; it does not
+  start a password reauthentication.
+- Source-specific availability: failed optional reads do not expose stale values as
+  healthy data. Diagnostics report aggregate coverage, not raw setting values.
+
+### Changed
+
+- Keep legacy numeric uptime entities and statistics intact; add separate native uptime
+  timestamps. Legacy duration entities are disabled by default only for new installations.
+- The controller device is named `TL-AC100` instead of `TP-Link TL-AC100`; existing entity
+  IDs are unchanged. AP devices get fallback and duplicate-safe names, a link to the
+  controller website, and firmware/hardware versions when reported.
+- Client trackers no longer create MAC-only devices. Unused tracker-only client devices
+  (tracker never enabled, not customised, not shared) are removed on upgrade; the tracker
+  entities themselves are kept.
+- Stale AP and client devices can be deleted from the device page.
+
 ### Fixed
 
 - A management command (LED, reboot) that is rejected because its session expired is no longer

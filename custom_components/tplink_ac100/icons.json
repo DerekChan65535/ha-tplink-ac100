@@ -1,0 +1,73 @@
+{
+  "entity": {
+    "sensor": {
+      "cpu_usage": {
+        "default": "mdi:chip"
+      },
+      "memory_usage": {
+        "default": "mdi:memory"
+      },
+      "connected_clients": {
+        "default": "mdi:account-multiple"
+      },
+      "online_access_points": {
+        "default": "mdi:access-point-network"
+      },
+      "total_access_points": {
+        "default": "mdi:access-point"
+      },
+      "ip_address": {
+        "default": "mdi:ip-network"
+      },
+      "radio_connected_clients": {
+        "default": "mdi:account-multiple"
+      },
+      "radio_channel": {
+        "default": "mdi:sine-wave"
+      },
+      "radio_channel_load": {
+        "default": "mdi:gauge"
+      },
+      "interface_transmit_packet_rate": {
+        "default": "mdi:upload-network"
+      },
+      "interface_receive_packet_rate": {
+        "default": "mdi:download-network"
+      },
+      "cpu_usage_average": {
+        "default": "mdi:chip"
+      }
+    },
+    "binary_sensor": {
+      "controller_writable": {
+        "default": "mdi:lock-open-variant",
+        "state": {
+          "off": "mdi:lock"
+        }
+      },
+      "cloud_bound": {
+        "default": "mdi:cloud-check",
+        "state": {
+          "off": "mdi:cloud-off-outline"
+        }
+      },
+      "cloud_management_enabled": {
+        "default": "mdi:cloud-cog",
+        "state": {
+          "off": "mdi:cloud-off-outline"
+        }
+      }
+    },
+    "switch": {
+      "led": {
+        "default": "mdi:led-on",
+        "state": {
+          "off": "mdi:led-off"
+        }
+      },
+      "debug_logging": {
+        "default": "mdi:bug"
+      }
+    }
+  }
+}

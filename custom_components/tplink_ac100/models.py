@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from .monitoring import ConfigurationState, MonitoringState
+
 
 @dataclass(frozen=True, slots=True)
 class Controller:
@@ -83,8 +85,14 @@ class Client:
 
 @dataclass(frozen=True, slots=True)
 class Snapshot:
-    """A complete successful poll; absent clients were not observed in this poll."""
+    """A complete successful poll; absent clients were not observed in this poll.
+
+    ``monitoring`` and ``configuration`` come from separate, slower optional reads and stay
+    None until one has succeeded.
+    """
 
     controller: Controller
     aps: tuple[AccessPoint, ...]
     clients: tuple[Client, ...]
+    monitoring: MonitoringState | None = None
+    configuration: ConfigurationState | None = None

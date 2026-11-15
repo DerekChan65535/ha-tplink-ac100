@@ -24,6 +24,7 @@ from custom_components.tplink_ac100.models import (
     Controller,
     Snapshot,
 )
+from custom_components.tplink_ac100.monitoring import ConfigurationState, MonitoringState
 
 
 @pytest.fixture
@@ -74,6 +75,8 @@ def ac_entry(hass):
 def ac_api(ac_snapshot):
     api = AsyncMock(spec=Ac100Api)
     api.async_get_snapshot.return_value = ac_snapshot
+    api.async_get_monitoring.return_value = MonitoringState()
+    api.async_get_configuration.return_value = ConfigurationState()
     with patch("custom_components.tplink_ac100.Ac100Api", return_value=api):
         yield api
 

@@ -17,6 +17,7 @@ from custom_components.tplink_ac100.debug_logging import (
     async_get_debug_logging,
 )
 from custom_components.tplink_ac100.models import AccessPoint, Controller, Snapshot
+from custom_components.tplink_ac100.monitoring import ConfigurationState, MonitoringState
 from custom_components.tplink_ac100.switch import Ac100DebugLoggingSwitch
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
@@ -84,6 +85,8 @@ async def debug_controller_factory(hass, local_logger):
         )
         api = AsyncMock(spec=Ac100Api)
         api.async_get_snapshot.return_value = snapshot
+        api.async_get_monitoring.return_value = MonitoringState()
+        api.async_get_configuration.return_value = ConfigurationState()
         with patch("custom_components.tplink_ac100.Ac100Api", return_value=api):
             assert await hass.config_entries.async_setup(entry.entry_id)
             await hass.async_block_till_done()
@@ -127,7 +130,9 @@ async def test_debug_defaults_off_and_is_available_read_only(
     assert local_logger.getEffectiveLevel() != logging.DEBUG
     assert len(hass.states.async_all("switch")) == 1
     api.async_get_snapshot.assert_awaited_once_with()
-    assert len(api.mock_calls) == 1
+    api.async_get_monitoring.assert_awaited_once_with()
+    api.async_get_configuration.assert_not_awaited()
+    assert len(api.mock_calls) == 2
 
 
 @pytest.mark.parametrize("previous_level", [logging.INFO, logging.WARNING, logging.NOTSET])
