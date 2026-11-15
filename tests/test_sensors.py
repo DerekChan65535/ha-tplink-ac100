@@ -18,7 +18,7 @@ pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 @pytest.fixture
 def sensor_snapshot():
-    """Include master, standby and offline APs with retained telemetry."""
+    """Include online, connecting and offline APs with retained telemetry."""
     radios = (
         ApRadio("0", "2.4GHz", 2, 6, 18.0),
         ApRadio("1", "5GHz", 3, 36, 25.0),
@@ -107,7 +107,7 @@ async def test_controller_values_and_shared_snapshot(
         "cpu_usage_1": "27.0",
         "memory_usage": "40.0",
         "uptime": "7200",
-        "online_access_points": "2",
+        "online_access_points": "1",
         "total_access_points": "3",
         "connected_clients": "2",
     }
@@ -125,10 +125,9 @@ async def test_controller_values_and_shared_snapshot(
     assert len(api.mock_calls) == 1
 
 
-@pytest.mark.parametrize("ap_index", [0, 1])
-async def test_online_ap_telemetry(hass, sensor_setup, sensor_snapshot, entity_registry, ap_index):
-    """Both master and standby APs count as online and expose current values."""
-    ap = sensor_snapshot.aps[ap_index]
+async def test_online_ap_telemetry(hass, sensor_setup, sensor_snapshot, entity_registry):
+    """Only a fully connected AP exposes current values."""
+    ap = sensor_snapshot.aps[0]
     clients = sensor_state(hass, entity_registry, sensor_snapshot, "connected_clients", ap)
     assert clients.state == "5"
     assert clients.attributes["ip_address"] == ap.ip
@@ -145,12 +144,13 @@ async def test_online_ap_telemetry(hass, sensor_setup, sensor_snapshot, entity_r
     assert connectivity.attributes["link_status"] == ap.link_status
 
 
-async def test_offline_ap_does_not_publish_stale_counters(
-    hass, sensor_setup, sensor_snapshot, entity_registry
+@pytest.mark.parametrize("ap_index", [1, 2])
+async def test_disconnected_ap_does_not_publish_stale_counters(
+    hass, sensor_setup, sensor_snapshot, entity_registry, ap_index
 ):
-    """Retained controller counters are unavailable, not live AP telemetry."""
+    """Connecting and offline counters are not live AP telemetry."""
     _, coordinator, _ = sensor_setup
-    ap = sensor_snapshot.aps[2]
+    ap = sensor_snapshot.aps[ap_index]
     assert (
         sensor_state(
             hass, entity_registry, sensor_snapshot, "connectivity", ap, "binary_sensor"

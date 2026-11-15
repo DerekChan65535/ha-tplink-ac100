@@ -9,7 +9,8 @@ service is required.
 
 > **Early release.** This is not an official TP-LINK or Home Assistant integration.
 > Read-only polling has been checked on the hardware/firmware listed below.
-> Management operations are optional and are **not live-write validated**.
+> Optional LED management is **not fully live-validated**; the corrected native HA
+> off/on cycle is still pending. Reboot actions have **not** been tested on live hardware.
 > Do not test reboot actions on a production Wi-Fi network.
 
 ## Scope and compatibility
@@ -19,7 +20,7 @@ service is required.
 | Home Assistant | Requires **2026.11.1 or newer**; development/test target: 2026.11.1. Older versions are not supported. |
 | Controller | Read-only checks: **TL-AC100 hardware 5.0**, firmware **1.0.5 Build 250814 Rel.82234n**. Other versions are unverified. |
 | Monitoring | Controller, managed AP, and connected-client state as native HA entities. |
-| AP LED | Optional control; based on interface evidence, not a live-write verification. |
+| AP LED | Guarded optional control; requires LED/Wi-Fi sync explicitly off. Corrected native HA off/on validation is pending. |
 | AP/controller reboot | Optional, disruptive control; **not tested on live hardware**. |
 | SSID/wireless configuration changes | Not included in the initial release. |
 | Debug level logging | Native diagnostic switch; off by default, independent of device management. |
@@ -36,6 +37,37 @@ health check. Software tests and interface evidence do not establish hardware sa
 
 Client names, addresses, and presence can be sensitive. Review which entities you
 enable and expose to dashboards, history, automations, or external services.
+
+## AP status and LED safety
+
+Only `link_status=1` counts as an online AP. `link_status=0` means **connecting**
+(“接入中”), not online or standby-online, and is excluded from the online count.
+
+LED readback and write values differ on the tested protocol:
+
+| Operation | On | Off | Unknown |
+| --- | --- | --- | --- |
+| Read LED state | `1` | `2` | `0` |
+| Write LED state | `1` | `0` | Not a write value |
+
+Initial live checks exposed this difference. The original on state has been restored
+and confirmed by readback `1` and HA showing on. A full off/on cycle through native HA
+after the correction **has not yet completed final validation**.
+
+Some APs can link their LED and Wi-Fi state. Before **every** LED write, the integration
+must read `led_wifi_sync` and confirm it is explicitly **off**; on, missing, or unknown
+blocks the write. The integration never changes this linkage option or wireless
+settings itself. There is no unconditional promise that an LED operation cannot affect
+Wi-Fi. Leave optional management off unless you understand this protection and risk.
+
+**Data handling for the LED safety check:** only when an LED action is requested, the
+integration requests one AP configuration row using an exact `entry_id` filter. The
+controller does not support field projection, so that row may also contain AP management
+fields. The response is processed transiently in HA memory, only `led_wifi_sync` is
+extracted, and the raw row is discarded. It is never logged, included in diagnostics,
+written to disk, or retained in a cache. Normal read-only polling does **not** read
+`apmng_set`. This is a minimal single-row read, not a claim that the controller returns
+no management fields.
 
 ## Controller login sessions
 
@@ -81,9 +113,12 @@ maintainer. Installing/configuring HACS itself is outside this repository's scop
 
 ## Manual installation
 
-1. Download the source archive for a specific [Release](https://github.com/DerekChan65535/ha-tplink-ac100/releases).
-2. Extract it locally. Copy **only** `custom_components/tplink_ac100/` into your HA
-   configuration directory's `custom_components/` directory.
+1. Download `tplink_ac100-<version>.zip` and `SHA256SUMS` from a specific
+   [Release](https://github.com/DerekChan65535/ha-tplink-ac100/releases). Verify the
+   downloaded archive with `sha256sum -c SHA256SUMS` before installing.
+2. Extract it locally. Copy **only** the `tplink_ac100/` folder into your HA
+   configuration directory's `custom_components/` directory. If you download GitHub's
+   source archive instead, that folder is under `custom_components/` in the source.
 3. Check the final path: `<HA_CONFIG>/custom_components/tplink_ac100/manifest.json`.
    Do not nest the whole repository inside `custom_components`.
 4. Restart Home Assistant Core, then add **TP-Link AC100** in Devices & services.

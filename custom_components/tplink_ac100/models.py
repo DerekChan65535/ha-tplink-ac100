@@ -43,8 +43,8 @@ class AccessPoint:
 
     @property
     def is_online(self) -> bool:
-        """Both master and standby links are connected; status 2 is offline."""
-        return self.link_status in {"0", "1"}
+        """Only status 1 is online; status 0 is still connecting."""
+        return self.link_status == "1"
 
     @property
     def is_manageable(self) -> bool:

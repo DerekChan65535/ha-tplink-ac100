@@ -15,6 +15,10 @@
   allowlist; raw request/response or authentication dumps are not supported.
 - Optional AP LED and reboot controls. Management is off by default; reboot button
   entities are disabled by default. SSID changes are not included.
+- Correct LED protocol mapping: read `1` on / `2` off / `0` unknown; write `1` on / `0` off.
+  Each LED write requires a fresh confirmation that `led_wifi_sync` is explicitly off;
+  on or unknown is rejected. The integration does not change linkage or wireless settings.
+- Count only AP `link_status=1` as online; `0` means connecting (接入中), not standby-online.
 - Session-safe setup and cleanup: configuration validation releases its temporary
   login, and entry unload/reload releases only its own token. No `force=1` login or
   intentional eviction of other administrators.
@@ -33,8 +37,13 @@
   before validation, then restores it on failure, wrong-device detection, or cancellation.
   A busy/session-in-use response is not a wrong-password response; wait for the other
   session to exit or expire.
-- LED/AP reboot/controller reboot operations are based on interface evidence and
-  software tests, **not live-write validation**. Do not test reboots on production Wi-Fi.
+- Initial live LED checks exposed the asymmetric protocol values. The original on state
+  was restored and confirmed by readback `1` and HA on. Final validation of the corrected
+  native HA off/on cycle **is still pending**; do not treat restoration as full success.
+- Some APs link LED state with Wi-Fi; LED control has no unconditional non-disruption
+  guarantee. The explicit-sync-off precondition is required before every write.
+- AP/controller reboot has **not** been tested on live hardware. Do not test reboots
+  on production Wi-Fi.
 - This is an early community release, not an official TP-LINK or HA integration.
 
 ### Installation and rollback

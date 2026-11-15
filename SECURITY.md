@@ -92,9 +92,27 @@ invalid-password response: wait for the other session to exit or expire before r
 ## Management operations
 
 Monitoring is the default. Management is **off by default**, and reboot button entities
-are **disabled by default**. LED/AP reboot/controller reboot interface evidence and
-mock tests do not establish that a write is safe on any firmware. Live-write validation
-has not been performed for these operations. SSID changes are not included initially.
+are **disabled by default**. Interface evidence and mock tests do not establish that a
+write is safe on any firmware. Initial LED checks exposed asymmetric values: readback
+`1` means on, `2` off, and `0` unknown; writes use `1` for on and `0` for off. The original
+on state has been restored and checked against HA, but the corrected native HA off/on
+cycle **still awaits final validation**. AP/controller reboot has not been tested on
+live hardware. SSID changes are not included initially.
+
+Some APs link LED state with Wi-Fi. Before **each** LED write, the integration must
+confirm `led_wifi_sync` is explicitly **off**; on, missing, or unknown blocks the write.
+It never changes that linkage option or wireless settings itself. Do not assume an LED
+operation is unconditionally non-disruptive. AP `link_status=0` means connecting, not
+online; only `link_status=1` contributes to the online AP count.
+
+The safety query runs **only on an LED action**, not during normal read-only polling.
+It requests exactly one AP configuration row using an exact `entry_id` filter. The
+controller cannot project individual fields, so the row may include AP management
+fields beyond `led_wifi_sync`; do not claim those fields are never read. Process the
+row only transiently in HA memory, extract only `led_wifi_sync`, then discard the raw
+row. It must never enter logs, diagnostics, disk storage, or retained caches. Default
+read-only polling does not query `apmng_set`. A missing/ambiguous safety result must
+block the LED write, not trigger a change to the linkage setting.
 
 Do not exercise reboots on production Wi-Fi to validate this project. Do not attach
 management actions to unattended automations before independently checking their
@@ -137,7 +155,13 @@ a change that was already applied to the controller.
 配置验证结束释放临时会话，卸载/reload 只释放自己 token，不使用 `force=1` 或踢其他管理员。
 忙碌/会话占用不等于密码错误，等待其他会话退出或超时即可重试。
 
-管理默认关闭，重启按钮默认禁用。管理接口证据及模拟测试不等于真机写入验证；
-不要用生产 Wi-Fi 试重启。SSID 修改首版不提供。写超时不要盲目重试；
-恢复 HA 备份也不能撤销已下发到控制器的改变。发生泄漏先撤销/轮换凭据，
+管理默认关闭，重启按钮默认禁用。LED 读取 `1` 开/`2` 关/`0` 未知，写入则为 `1` 开/`0` 关；
+初测发现并修正此差异。原开启状态已由读取 `1` 和 HA 开启状态核对恢复，但修正后的原生 HA off/on 周期
+仍待最终验收。重启未在真机执行，不要用生产 Wi-Fi 试重启。每次 LED 写前必须确认
+`led_wifi_sync` 明确关闭，开启、缺失或未知时拒绝；不修改联动选项或无线设置，不能无条件承诺 LED 不影响 Wi-Fi。
+仅请求 LED 操作时，按 `entry_id` 精确过滤读取一条 AP 配置；默认只读轮询不读 `apmng_set`。
+设备没有字段投影，返回行可能含 AP 管理字段，不能声称完全不读取；仅在 HA 内存中临时处理，
+只提取 `led_wifi_sync` 后丢弃原始行，禁止日志、诊断、磁盘或缓存保留。
+`link_status=0` 是接入中而非在线，仅 `1` 计为在线 AP。SSID 修改首版不提供。
+写超时不要盲目重试；恢复 HA 备份也不能撤销已下发到控制器的改变。发生泄漏先撤销/轮换凭据，
 再处理历史与缓存，单纯删除当前文件并不能补救。

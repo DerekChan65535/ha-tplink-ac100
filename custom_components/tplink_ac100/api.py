@@ -52,6 +52,10 @@ class Ac100ProtocolError(Ac100Error):
     """The controller returned an unsupported or malformed response."""
 
 
+class Ac100UnsafeLedError(Ac100Error):
+    """LED control could not be confirmed independent of the AP's WiFi."""
+
+
 def normalize_host(host: str) -> str:
     """Accept an HTTP(S) origin or a bare hostname/address, never a URL path."""
     value = host.strip()
@@ -179,7 +183,7 @@ def _parse_ap(row: dict[str, Any]) -> AccessPoint:
         mac=_mac(row.get("mac")),
         ip=str(row.get("ip", "")),
         link_status=str(row.get("link_status", "")),
-        led_enabled={"1": True, "0": False}.get(str(row.get("led_status"))),
+        led_enabled={"1": True, "2": False}.get(str(row.get("led_status"))),
         uptime=_integer(row.get("online_time")),
         radios=radios,
     )
@@ -415,10 +419,45 @@ class Ac100Api:
                 controller=controller, aps=tuple(aps.values()), clients=tuple(clients.values())
             )
 
-    async def async_set_ap_led(self, entry_id: str, enabled: bool) -> None:
-        """Set one AP LED; do not retry on ambiguous network failures."""
+    async def _get_ap_led_wifi_sync(self, entry_id: str) -> bool | None:
+        """Read one AP configuration transiently; never cache its accompanying fields."""
+        _LOGGER.debug("AP LED safety check started")
+        result = await self._request(
+            {
+                "method": "get",
+                "apmng_set": {
+                    "table": "ap_list",
+                    "filter": [{"entry_id": entry_id}],
+                    "para": {"start": 0, "end": 0},
+                },
+            }
+        )
+        try:
+            rows = _rows(result, "apmng_set", "ap_list")
+        except Ac100ProtocolError:
+            rows = []
+        state = None
+        if len(rows) == 1 and str(rows[0].get("entry_id")) == entry_id:
+            value = rows[0].get("led_wifi_sync")
+            if value == "on":
+                state = True
+            elif value == "off":
+                state = False
+        _LOGGER.debug("AP LED safety check complete (verified_off=%s)", state is False)
+        return state
+
+    async def async_get_ap_led_wifi_sync(self, entry_id: str) -> bool | None:
+        """Read one AP's sync setting: True=on, False=off, None=unverified."""
         async with self._lock:
             self._ensure_open()
+            return await self._get_ap_led_wifi_sync(entry_id)
+
+    async def async_set_ap_led(self, entry_id: str, enabled: bool) -> None:
+        """Set one AP LED only after its current WiFi synchronization is confirmed off."""
+        async with self._lock:
+            self._ensure_open()
+            if await self._get_ap_led_wifi_sync(entry_id) is not False:
+                raise Ac100UnsafeLedError("Cannot confirm LED and WiFi synchronization is disabled")
             _LOGGER.debug("Controller management request: AP LED (enabled=%s)", bool(enabled))
             await self._request(
                 {

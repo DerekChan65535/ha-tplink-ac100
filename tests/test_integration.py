@@ -171,7 +171,7 @@ async def test_reboot_target_uses_fresh_ap_address(hass, ac_entry, ac_api, ac_sn
     ac_api.async_reboot_ap.assert_awaited_once_with("9")
 
 
-async def test_standby_ap_cannot_be_managed(hass, ac_entry, ac_api, ac_snapshot):
+async def test_connecting_ap_cannot_be_managed(hass, ac_entry, ac_api, ac_snapshot):
     hass.config_entries.async_update_entry(ac_entry, options={CONF_ENABLE_CONTROL: True})
     ac_api.async_get_snapshot.return_value = replace(
         ac_snapshot, aps=(replace(ac_snapshot.aps[0], link_status="0"),)
@@ -328,3 +328,16 @@ async def test_cancelled_setup_releases_session(hass, ac_entry, ac_api):
     with pytest.raises(asyncio.CancelledError):
         await task
     ac_api.async_logout.assert_awaited()
+
+
+async def test_unsafe_led_refusal_is_explained_without_reauth(hass, ac_entry, ac_api):
+    from custom_components.tplink_ac100.api import Ac100UnsafeLedError
+
+    hass.config_entries.async_update_entry(ac_entry, options={CONF_ENABLE_CONTROL: True})
+    coordinator = await setup(hass, ac_entry)
+    action = AsyncMock(side_effect=Ac100UnsafeLedError("Safety check rejected"))
+    with patch.object(type(ac_entry), "async_start_reauth") as reauth:
+        with pytest.raises(HomeAssistantError) as error:
+            await coordinator.async_control(action)
+        assert error.value.translation_key == "led_wifi_sync_unsafe"
+        reauth.assert_not_called()

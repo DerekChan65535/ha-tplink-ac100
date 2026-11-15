@@ -14,7 +14,13 @@ from homeassistant.exceptions import (
 )
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import Ac100Api, Ac100AuthError, Ac100Error, Ac100SessionBusyError
+from .api import (
+    Ac100Api,
+    Ac100AuthError,
+    Ac100Error,
+    Ac100SessionBusyError,
+    Ac100UnsafeLedError,
+)
 from .const import CONF_ENABLE_CONTROL, DOMAIN, UPDATE_INTERVAL
 from .models import Snapshot
 
@@ -81,6 +87,10 @@ class Ac100Coordinator(DataUpdateCoordinator[Snapshot]):
         except Ac100SessionBusyError as err:
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="session_busy"
+            ) from err
+        except Ac100UnsafeLedError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="led_wifi_sync_unsafe"
             ) from err
         except Ac100AuthError as err:
             self.entry.async_start_reauth(self.hass)

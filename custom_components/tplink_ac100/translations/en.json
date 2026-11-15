@@ -56,7 +56,7 @@
     "step": {
       "init": {
         "title": "Controller management",
-        "description": "Monitoring is read-only by default. Enable control only if you want to send explicit management actions. Reboot buttons remain disabled until individually enabled; pressing one interrupts service.",
+        "description": "Monitoring is read-only by default. Enable control only if you want to send explicit management actions. Reboot buttons remain disabled until individually enabled; pressing one interrupts service. Before an LED action, one AP configuration row is checked transiently in memory for LED/WiFi synchronization. The response may contain management fields; they are not saved or logged. LED control requires synchronization to be explicitly off.",
         "data": {
           "enable_control": "Enable device control"
         },
@@ -121,6 +121,9 @@
     },
     "session_busy": {
       "message": "This account already has another management session. Sign out in the other management client or wait for that session to expire, then try again. The integration will not force a takeover."
+    },
+    "led_wifi_sync_unsafe": {
+      "message": "LED control was blocked because LED/WiFi synchronization could not be confirmed off. This prevents a possible WiFi change. The integration does not change the synchronization setting."
     }
   }
 }
