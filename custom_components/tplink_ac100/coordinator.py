@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
+from functools import partial
 from time import monotonic
 
 from homeassistant.config_entries import ConfigEntry
@@ -29,6 +30,7 @@ from .api import (
 )
 from .const import (
     CONF_ENABLE_CONTROL,
+    CONF_MONITOR_WIRELESS_SERVICES,
     CONFIGURATION_INTERVAL,
     DOMAIN,
     MONITORING_INTERVAL,
@@ -64,6 +66,7 @@ class Ac100Coordinator(DataUpdateCoordinator[Snapshot]):
         self._next_monitoring = 0.0
         self._next_configuration = monotonic() + UPDATE_INTERVAL.total_seconds()
         self._failed_reads: set[str] = set()
+        self._refresh_all = False
 
         async def stop(event: Event) -> None:
             await self.async_shutdown()
@@ -107,20 +110,39 @@ class Ac100Coordinator(DataUpdateCoordinator[Snapshot]):
     async def _async_update_optional(self, snapshot: Snapshot) -> Snapshot:
         """Run at most one slow read per poll, without a catch-up burst after downtime.
 
-        Settings are read only while an enabled entity uses them.
+        Settings are read only while an enabled entity uses them. After a management action
+        both reads run at once, so the changed value is shown on the next update.
         """
         now = monotonic()
-        if now >= self._next_monitoring:
+        refresh_all, self._refresh_all = self._refresh_all, False
+        read_monitoring = refresh_all or now >= self._next_monitoring
+        read_configuration = CONFIGURATION_CONTEXT in set(self.async_contexts()) and (
+            refresh_all or (not read_monitoring and now >= self._next_configuration)
+        )
+        if read_monitoring:
             self._monitoring = await self._async_read_optional(
-                "monitoring", self.api.async_get_monitoring
+                "monitoring",
+                partial(
+                    self.api.async_get_monitoring,
+                    wireless_services=self.entry.options.get(CONF_MONITOR_WIRELESS_SERVICES, False),
+                ),
             )
             self._next_monitoring = now + MONITORING_INTERVAL.total_seconds()
-        elif now >= self._next_configuration and CONFIGURATION_CONTEXT in set(
-            self.async_contexts()
-        ):
-            self._configuration = await self._async_read_optional(
+        if read_configuration:
+            configuration = await self._async_read_optional(
                 "configuration", self.api.async_get_configuration
             )
+            if configuration is not None:
+                # Radio rows name their AP by its current command address; pin the MAC now.
+                macs = {ap.entry_id: ap.mac for ap in snapshot.aps}
+                configuration = replace(
+                    configuration,
+                    radios=tuple(
+                        replace(radio, ap_mac=macs.get(radio.ap_entry_id))
+                        for radio in configuration.radios
+                    ),
+                )
+            self._configuration = configuration
             self._next_configuration = now + CONFIGURATION_INTERVAL.total_seconds()
         return replace(snapshot, monitoring=self._monitoring, configuration=self._configuration)
 
@@ -177,7 +199,7 @@ class Ac100Coordinator(DataUpdateCoordinator[Snapshot]):
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="control_failed"
             ) from err
-        self._next_monitoring = 0.0
+        self._refresh_all = True
         await self.async_refresh()
 
 

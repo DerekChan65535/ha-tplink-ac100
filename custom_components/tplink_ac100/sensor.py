@@ -20,9 +20,10 @@ from homeassistant.util import dt as dt_util
 
 from .configuration_entity import add_configuration_entities
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
-from .entity import Ac100Entity
+from .entity import Ac100Entity, band_label
 from .models import AccessPoint, ApRadio, Snapshot
 from .monitoring_sensor import add_monitoring_sensors
+from .radio_entity import add_radio_settings
 
 PARALLEL_UPDATES = 0
 
@@ -43,12 +44,6 @@ def _usable_ip(address: str) -> str | None:
 def _core_number(core: str) -> str:
     """Show the raw key core1 as 1; the raw key itself stays in the unique ID."""
     return re.sub(r"^(?:cpu|core)", "", core, flags=re.IGNORECASE) or core
-
-
-def _band_label(radio: ApRadio) -> str:
-    """Use the controller's band name, or a plain label when it sends none (--- or blank)."""
-    band = radio.frequency.strip()
-    return band if band and band != "---" else f"Radio {radio.unit}"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -268,6 +263,7 @@ async def async_setup_entry(
     entry.async_on_unload(coordinator.async_add_listener(async_add_new_entities))
     add_monitoring_sensors(entry, async_add_entities)
     add_configuration_entities(entry, async_add_entities, binary=False)
+    add_radio_settings(entry, async_add_entities, binary=False)
 
 
 class Ac100ControllerSensor(Ac100Entity, SensorEntity):
@@ -352,7 +348,7 @@ class Ac100RadioSensor(Ac100ApTelemetry):
         super().__init__(coordinator, f"radio_{radio.unit}_{description.key}", ap_mac)
         self.entity_description = description
         self._radio_unit = radio.unit
-        self._attr_translation_placeholders = {"band": _band_label(radio)}
+        self._attr_translation_placeholders = {"band": band_label(radio)}
 
     @property
     def radio(self) -> ApRadio | None:

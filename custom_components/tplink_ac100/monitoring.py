@@ -1,8 +1,9 @@
 """Read-only monitoring and configuration data shared by the API client and entities.
 
 Nothing here holds a raw controller response: every field is an explicit, bounded scalar.
-The wire parsing lives in api.py; this module is the schema, including the allow-list of
-configuration fields. A setting that is not listed in CONFIGURATION_FIELDS is never read out.
+The wire parsing lives in api.py; this module is the schema, including the allow-lists of
+configuration fields. A setting that is not listed in CONFIGURATION_FIELDS (controller settings)
+or RADIO_FIELDS (per-radio settings) is never read out.
 """
 
 from dataclasses import dataclass, field
@@ -77,11 +78,32 @@ class MonitoringState:
 
 
 @dataclass(frozen=True, slots=True)
+class RadioSettings:
+    """One AP radio's allow-listed settings, keyed by the RADIO_FIELDS keys.
+
+    ``ap_entry_id`` is the AP's command address at read time (the controller's ``rf_id // 16``),
+    not a stable identity; the coordinator sets ``ap_mac`` from the same poll. ``unit`` is the
+    radio's ``freq_unit``, as in ``ApRadio.unit``. A value the controller reported in an unknown
+    form, or one that does not apply to the radio's current configuration, is None.
+    """
+
+    ap_entry_id: str
+    unit: str
+    values: dict[str, Scalar] = field(default_factory=dict)
+    ap_mac: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ConfigurationState:
-    """Allow-listed controller settings as scalars, keyed by the CONFIGURATION_FIELDS keys."""
+    """Allow-listed controller settings as scalars, keyed by the CONFIGURATION_FIELDS keys.
+
+    ``radios`` holds each AP radio's settings; it is empty when the radio table was not read,
+    which ``available_sections`` records by lacking RADIO_SOURCE.
+    """
 
     values: dict[str, Scalar] = field(default_factory=dict)
     available_sections: frozenset[str] = frozenset()
+    radios: tuple[RadioSettings, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,3 +303,117 @@ def _sources(fields: tuple[ConfigField, ...]) -> dict[str, tuple[str, ...]]:
 
 # The sections to request, per module, derived from the catalog so the two cannot disagree.
 CONFIGURATION_SOURCES = _sources(CONFIGURATION_FIELDS)
+
+RADIO_MODULE = "apmng_rf"
+RADIO_TABLE = "rf_entry"
+# The ConfigurationState.available_sections entry that marks the radio table as read.
+RADIO_SOURCE = f"{RADIO_MODULE}.{RADIO_TABLE}"
+
+
+@dataclass(frozen=True, slots=True)
+class RadioField:
+    """One allow-listed scalar of an AP radio's row in the radio table.
+
+    ``key`` ends the entity's unique ID and follows ``radio_`` in its translation key. ``kind``
+    is bool, enum or number. ``unit`` is as the controller UI prints it.
+
+    ``mapping`` turns a raw token into a state: True or False for a bool, a short snake_case name
+    for an enum, a named value for a number (channel -1 is "auto"). The value is None for any
+    other token of a bool or enum, for a number that is malformed or outside
+    ``minimum``..``maximum``, and for a setting that does not apply: ``applies_when`` is a
+    (raw field, raw value) pair that the same row must hold.
+    """
+
+    key: str
+    field: str
+    kind: Literal["bool", "number", "enum"]
+    unit: str | None = None
+    mapping: _Mapping = ()
+    minimum: int | None = None
+    maximum: int | None = None
+    applies_when: tuple[str, str] | None = None
+
+    @property
+    def options(self) -> tuple[str, ...]:
+        """The distinct states an enum can take, in declaration order."""
+        return tuple(dict.fromkeys(state for _, state in self.mapping if isinstance(state, str)))
+
+
+# Radio modes as the controller UI lists them: the 802.11 amendments a radio runs. Mode 8
+# ("ac only") is commented out of the UI and has no token here.
+_RADIO_MODES: _Mapping = (
+    ("0", "802_11a"),
+    ("1", "802_11b"),
+    ("2", "802_11g"),
+    ("3", "802_11n_2_4ghz"),
+    ("4", "802_11n_5ghz"),
+    ("5", "802_11b_g"),
+    ("6", "802_11b_g_n"),
+    ("7", "802_11a_n"),
+    ("9", "802_11a_n_ac"),
+    ("10", "802_11b_g_n_ax"),
+    ("11", "802_11a_n_ac_ax"),
+    ("12", "802_11b_g_n_ax_be"),
+    ("13", "802_11a_n_ac_ax_be"),
+)
+_RADIO_WIDTHS: _Mapping = (
+    ("2", "auto"),
+    ("0", "20mhz"),
+    ("1", "40mhz"),
+    ("3", "80mhz"),
+    ("4", "80_plus_80mhz"),
+    ("5", "160mhz"),
+    ("6", "240mhz"),
+)
+_RADIO_CHANNEL_SWITCHING: _Mapping = (("0", "auto"), ("1", "manual"), ("2", "off"))
+
+# Every entry is a setting that the controller's radio page shows with its meaning and unit. The
+# row's other fields (names, capability limits, EDCA queues, DCS tuning, 802.11ax features and
+# the like) are deliberately absent here and therefore never copied.
+RADIO_FIELDS: tuple[RadioField, ...] = (
+    RadioField("enabled", "rf_state", "bool", mapping=_ON_OFF),
+    RadioField("mode", "mode", "enum", mapping=_RADIO_MODES),
+    RadioField("channel_width", "bandwidth", "enum", mapping=_RADIO_WIDTHS),
+    # The configured channel; -1 is Auto, which is not the channel the AP currently uses.
+    RadioField("configured_channel", "channel", "number", mapping=(("-1", "auto"),), minimum=1),
+    # The UI offers dynamic channel switching only while the channel is Auto.
+    RadioField(
+        "channel_switching",
+        "rf_chnl_dcs",
+        "enum",
+        mapping=_RADIO_CHANNEL_SWITCHING,
+        applies_when=("channel", "-1"),
+    ),
+    # A level that the UI shows as Lv1..Lv10, not a power in dBm.
+    RadioField("power_level", "power", "number", minimum=1, maximum=10),
+    RadioField("client_limit", "max_usr", "number"),
+    # Time units (TU, 1.024 ms each), as the UI shows them.
+    RadioField("beacon_interval", "bcn_intvl", "number"),
+    RadioField("dtim_period", "dtim_prd", "number"),
+    RadioField("rts_threshold", "rts_thr", "number", "B"),
+    RadioField("fragmentation_threshold", "frag_thr", "number", "B"),
+    RadioField("short_guard_interval", "short_gi", "bool", mapping=_ON_OFF),
+    RadioField("wmm", "wmm", "bool", mapping=_ON_OFF),
+    RadioField("airtime_scheduling", "airtime", "bool", mapping=_ON_OFF),
+    RadioField("weak_signal_restriction", "rssi_restrict", "bool", mapping=_ON_OFF),
+    # While a restriction or disconnect rule is off, the row holds a placeholder threshold.
+    RadioField(
+        "weak_signal_restriction_threshold",
+        "rssi_restrict_val",
+        "number",
+        "dBm",
+        applies_when=("rssi_restrict", "on"),
+    ),
+    RadioField("weak_signal_disconnect", "rssi_kick", "bool", mapping=_ON_OFF),
+    RadioField(
+        "weak_signal_disconnect_threshold",
+        "rssi_kick_val",
+        "number",
+        "dBm",
+        applies_when=("rssi_kick", "on"),
+    ),
+    # The UI labels these "Wireless Client Forward Access" and "Signal Strength Threshold".
+    RadioField("client_forward_access", "reject_enable", "bool", mapping=_ON_OFF),
+    RadioField("client_forward_access_threshold", "reject_limit", "number", "dBm"),
+    RadioField("broadcast_probe_response", "brd_probe", "bool", mapping=_ON_OFF),
+)

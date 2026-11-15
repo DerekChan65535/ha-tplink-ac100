@@ -73,11 +73,11 @@ async def test_settings_are_not_read_without_an_enabled_settings_entity(tier_set
 async def test_staggered_tiers_no_catch_up_burst(tier_setup):
     coordinator, api, clock, _ = tier_setup
     use_settings(coordinator)
-    api.async_get_monitoring.assert_awaited_once_with()
+    api.async_get_monitoring.assert_awaited_once_with(wireless_services=False)
     api.async_get_configuration.assert_not_awaited()
     clock[0] = 159
     await coordinator.async_refresh()
-    api.async_get_monitoring.assert_awaited_once_with()
+    api.async_get_monitoring.assert_awaited_once_with(wireless_services=False)
     api.async_get_configuration.assert_not_awaited()
     clock[0] = 160
     await coordinator.async_refresh()
@@ -142,4 +142,20 @@ async def test_identity_checked_before_any_optional_reads(tier_setup):
     clock[0] = 400
     with pytest.raises(ConfigEntryError):
         await coordinator._async_update_data()
-    api.async_get_monitoring.assert_awaited_once_with()
+    api.async_get_monitoring.assert_awaited_once_with(wireless_services=False)
+
+
+async def test_management_action_refreshes_both_optional_reads(hass, tier_setup):
+    from custom_components.tplink_ac100.const import CONF_ENABLE_CONTROL
+
+    coordinator, api, clock, _ = tier_setup
+    use_settings(coordinator)
+    hass.config_entries.async_update_entry(
+        coordinator.config_entry, options={CONF_ENABLE_CONTROL: True}
+    )
+    clock[0] = 130
+    action = AsyncMock()
+    await coordinator.async_control(action)
+    action.assert_awaited_once_with()
+    assert api.async_get_monitoring.await_count == 2
+    api.async_get_configuration.assert_awaited_once_with()

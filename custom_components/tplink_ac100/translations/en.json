@@ -136,6 +136,74 @@
       "radio_channel_load": {
         "name": "{band} channel load"
       },
+      "radio_mode": {
+        "name": "{band} radio mode",
+        "state": {
+          "802_11a": "802.11a",
+          "802_11b": "802.11b",
+          "802_11g": "802.11g",
+          "802_11n_2_4ghz": "802.11n (2.4 GHz)",
+          "802_11n_5ghz": "802.11n (5 GHz)",
+          "802_11b_g": "802.11b/g",
+          "802_11b_g_n": "802.11b/g/n",
+          "802_11a_n": "802.11a/n",
+          "802_11a_n_ac": "802.11a/n/ac",
+          "802_11b_g_n_ax": "802.11b/g/n/ax",
+          "802_11a_n_ac_ax": "802.11a/n/ac/ax",
+          "802_11b_g_n_ax_be": "802.11b/g/n/ax/be",
+          "802_11a_n_ac_ax_be": "802.11a/n/ac/ax/be"
+        }
+      },
+      "radio_channel_width": {
+        "name": "{band} channel width",
+        "state": {
+          "auto": "Auto",
+          "20mhz": "20 MHz",
+          "40mhz": "40 MHz",
+          "80mhz": "80 MHz",
+          "80_plus_80mhz": "80+80 MHz",
+          "160mhz": "160 MHz",
+          "240mhz": "240 MHz"
+        }
+      },
+      "radio_configured_channel": {
+        "name": "{band} configured channel"
+      },
+      "radio_channel_switching": {
+        "name": "{band} dynamic channel switching",
+        "state": {
+          "auto": "Automatic",
+          "manual": "Manual",
+          "off": "Off"
+        }
+      },
+      "radio_power_level": {
+        "name": "{band} transmit power level"
+      },
+      "radio_client_limit": {
+        "name": "{band} client limit"
+      },
+      "radio_beacon_interval": {
+        "name": "{band} beacon interval (TU)"
+      },
+      "radio_dtim_period": {
+        "name": "{band} DTIM period"
+      },
+      "radio_rts_threshold": {
+        "name": "{band} RTS threshold"
+      },
+      "radio_fragmentation_threshold": {
+        "name": "{band} fragmentation threshold"
+      },
+      "radio_weak_signal_restriction_threshold": {
+        "name": "{band} weak-signal restriction threshold"
+      },
+      "radio_weak_signal_disconnect_threshold": {
+        "name": "{band} weak-signal disconnect threshold"
+      },
+      "radio_client_forward_access_threshold": {
+        "name": "{band} client forward access signal threshold"
+      },
       "band_navigation_5g_threshold": {
         "name": "Band navigation 5 GHz client threshold"
       },
@@ -366,6 +434,30 @@
       },
       "port_connectivity": {
         "name": "Port {port} connectivity"
+      },
+      "radio_enabled": {
+        "name": "{band} radio enabled"
+      },
+      "radio_short_guard_interval": {
+        "name": "{band} short guard interval"
+      },
+      "radio_wmm": {
+        "name": "{band} WMM"
+      },
+      "radio_airtime_scheduling": {
+        "name": "{band} airtime scheduling"
+      },
+      "radio_weak_signal_restriction": {
+        "name": "{band} weak-signal restriction"
+      },
+      "radio_weak_signal_disconnect": {
+        "name": "{band} weak-signal disconnect"
+      },
+      "radio_client_forward_access": {
+        "name": "{band} client forward access"
+      },
+      "radio_broadcast_probe_response": {
+        "name": "{band} broadcast probe response"
       },
       "band_navigation_enabled": {
         "name": "Band navigation"

@@ -48,6 +48,7 @@ async def async_get_config_entry_diagnostics(
                 sorted(configuration.available_sections) if configuration else []
             ),
             "scalar_fields": len(configuration.values) if configuration else 0,
+            "radio_settings": len(configuration.radios) if configuration else 0,
         },
         "access_points": {
             "total": len(coordinator.data.aps),

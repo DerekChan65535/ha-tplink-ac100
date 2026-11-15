@@ -130,7 +130,7 @@ async def test_debug_defaults_off_and_is_available_read_only(
     assert local_logger.getEffectiveLevel() != logging.DEBUG
     assert len(hass.states.async_all("switch")) == 1
     api.async_get_snapshot.assert_awaited_once_with()
-    api.async_get_monitoring.assert_awaited_once_with()
+    api.async_get_monitoring.assert_awaited_once_with(wireless_services=False)
     api.async_get_configuration.assert_not_awaited()
     assert len(api.mock_calls) == 2
 

@@ -58,6 +58,11 @@ The development branch adds native readings, not an embedded controller web pane
 - 70 credential-free settings (roaming, band steering, load balancing, radio
   optimization, multicast, time, session limits and AP management) as diagnostic
   readings, disabled by default. These are readings, not switches that modify settings.
+- 21 configured settings per AP radio (radio mode, channel width, configured channel,
+  transmit power level, client limit, beacon, DTIM, RTS and fragmentation values, WMM,
+  weak-signal rules and others) as diagnostic readings on each AP, disabled by default.
+  They come from the controller's radio table, read together with the other settings. An AP
+  that is not online, or a radio missing from the table, shows as unavailable.
 
 Polling shares the existing single management session. The core poll remains at
 60 seconds. Status, port, interface and firmware reads run every 5 minutes. Settings
@@ -68,9 +73,10 @@ Downloadable diagnostics include source names and counts, not values or network 
 
 The controller cannot return single fields, so some requested sections contain more
 than is shown: the firmware announcement includes a download URL and release notes,
-the cloud status includes binding details, and the AP-management and reporting settings
-include proxy and server addresses. Those extra fields are dropped in memory and never
-stored, logged or included in diagnostics. Tables that hold secrets are **not requested**:
+the cloud status includes binding details, the AP-management and reporting settings
+include proxy and server addresses, and the radio table includes AP names and capability
+limits. Those extra fields are dropped in memory and never stored, logged or included in
+diagnostics. Tables that hold secrets are **not requested**:
 the wireless service table (Wi-Fi/RADIUS keys, even when the web page only needs SSID
 names), the AP table with per-AP credentials, mesh backhaul settings, account and
 portal records, and certificate/configuration files.

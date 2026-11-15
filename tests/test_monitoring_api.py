@@ -24,6 +24,8 @@ from custom_components.tplink_ac100.models import Controller, Snapshot
 from custom_components.tplink_ac100.monitoring import (
     CONFIGURATION_FIELDS,
     CONFIGURATION_SOURCES,
+    RADIO_FIELDS,
+    RADIO_SOURCE,
     ApFirmware,
     ConfigurationState,
     FirmwareAvailability,
@@ -155,6 +157,79 @@ def interface_row(name="lan", **extra):
     }
 
 
+def radio_row(entry_id, unit, **extra):
+    """A radio row: catalogued settings, plus a name and fields that must never leave the API."""
+    return {
+        "rf_id": str(entry_id * 16 + unit),
+        "freq_unit": str(unit),
+        "freq_name": "2.4GHz" if unit == 1 else "5GHz",
+        "rf_name": "2.4G1" if unit == 1 else "5G1",
+        "ap_name": "CANARY_AP_NAME",
+        "ap_type": "ap",
+        "rf_state": "on",
+        "mode": "6",
+        "bandwidth": "2",
+        "channel": "-1",
+        "rf_chnl_dcs": "0",
+        "power": "10",
+        "max_usr": "64",
+        "bcn_intvl": "100",
+        "dtim_prd": "1",
+        "rts_thr": "2346",
+        "frag_thr": "2346",
+        "short_gi": "on",
+        "wmm": "on",
+        "airtime": "off",
+        "rssi_restrict": "off",
+        "rssi_restrict_val": "0",
+        "rssi_kick": "on",
+        "rssi_kick_val": "-80",
+        "reject_enable": "on",
+        "reject_limit": "-60",
+        "brd_probe": "on",
+        "dft_tx_pwr": "24",
+        "rf_max_usr": "64",
+        "ap_vo_aifs": "1",
+        "downlink_mumimo": "null",
+        **SECRET_FIELDS,
+        **extra,
+    }
+
+
+RADIO_VALUES = {
+    "enabled": True,
+    "mode": "802_11b_g_n",
+    "channel_width": "auto",
+    "configured_channel": "auto",
+    "channel_switching": "auto",
+    "power_level": 10,
+    "client_limit": 64,
+    "beacon_interval": 100,
+    "dtim_period": 1,
+    "rts_threshold": 2346,
+    "fragmentation_threshold": 2346,
+    "short_guard_interval": True,
+    "wmm": True,
+    "airtime_scheduling": False,
+    "weak_signal_restriction": False,
+    "weak_signal_restriction_threshold": None,
+    "weak_signal_disconnect": True,
+    "weak_signal_disconnect_threshold": -80,
+    "client_forward_access": True,
+    "client_forward_access_threshold": -60,
+    "broadcast_probe_response": True,
+}
+RADIO_TABLE = ("apmng_rf", "rf_entry")
+RADIO_REQUEST = {
+    "method": "get",
+    "apmng_rf": {
+        "table": "rf_entry",
+        "filter": [{"group_id": ["-1"], "ap_status": ["0"]}],
+        "para": {"start": 0, "end": 9},
+    },
+}
+
+
 class FakeController:
     """A GET-only SLP double answering section and table queries from plain dictionaries."""
 
@@ -190,6 +265,7 @@ class FakeController:
                 port_row(3, state="disconnected"),
             ],
             ("system", "ifstat_list"): [interface_row()],
+            RADIO_TABLE: [radio_row(entry, unit) for entry in (0, 1) for unit in (1, 2)],
         }
         self.sections.update(configuration_sections())
         self.counts = {}
@@ -311,7 +387,7 @@ async def test_monitoring_reads_every_source_get_only_over_the_one_session():
     assert state.interfaces == (InterfaceTraffic("lan", 5.0, 4.0, 17.0, 29.0, 1000, 2000),)
     assert all(body["method"] == "get" for body in controller.bodies)
     assert set(controller.urls) == {"http://controller.example/stok=synthetic-session/ds"}
-    assert not {"apmng_mesh", "ha_mngt", "apmng_set"} & {
+    assert not {"apmng_mesh", "ha_mngt", "apmng_set", "apmng_rf"} & {
         module for body in controller.bodies for module in body
     }
     assert controller.bodies[-3:] == [
@@ -599,7 +675,12 @@ async def test_garbage_everywhere_yields_an_empty_state_instead_of_an_error():
 
 @pytest.mark.parametrize(
     ("reader", "position"),
-    [("async_get_monitoring", 0), ("async_get_monitoring", 3), ("async_get_configuration", 0)],
+    [
+        ("async_get_monitoring", 0),
+        ("async_get_monitoring", 3),
+        ("async_get_configuration", 0),
+        ("async_get_configuration", 1),
+    ],
 )
 @pytest.mark.parametrize(
     ("response", "error"),
@@ -804,11 +885,15 @@ async def test_configuration_reads_only_catalogued_sections_by_get_and_nothing_e
     api, _, controller = make_api()
     state = await api.async_get_configuration()
     assert set(state.values) == set(FIELDS)
-    assert state.available_sections == {item.source for item in CONFIGURATION_FIELDS}
+    assert state.available_sections == {item.source for item in CONFIGURATION_FIELDS} | {
+        RADIO_SOURCE
+    }
     assert all(body["method"] == "get" for body in controller.bodies)
+    assert [body for body in controller.bodies if "apmng_rf" in body] == [RADIO_REQUEST]
     assert all(
         "table" not in query
         for body in controller.bodies
+        if "apmng_rf" not in body
         for query in body.values()
         if isinstance(query, dict)
     )
@@ -827,6 +912,7 @@ async def test_configuration_reads_only_catalogued_sections_by_get_and_nothing_e
         }
     )
     assert ("apmng_wserv", "wlan_serv") not in requested
+    assert len(state.radios) == 4
     text = repr(state) + str(asdict(state))
     assert not [canary for canary in CANARIES if canary in text]
 
@@ -878,6 +964,275 @@ async def test_configuration_never_raises_on_unexpected_value_forms(weird):
     assert all(value is None for value in state.values.values())
 
 
+def typed(values):
+    """Compare values together with their types, as True == 1 and 36.0 == 36."""
+    return {key: (type(value), value) for key, value in values.items()}
+
+
+async def test_radio_settings_are_read_page_by_page_with_the_ui_filter():
+    api, _, controller = make_api()
+    controller.tables[RADIO_TABLE] = [
+        radio_row(entry, unit) for entry in range(6) for unit in (1, 2)
+    ]
+    state = await api.async_get_configuration()
+    assert RADIO_SOURCE in state.available_sections
+    assert [(radio.ap_entry_id, radio.unit) for radio in state.radios] == [
+        (str(entry), str(unit)) for entry in range(6) for unit in (1, 2)
+    ]
+    assert all(typed(radio.values) == typed(RADIO_VALUES) for radio in state.radios)
+    assert set(RADIO_VALUES) == {item.key for item in RADIO_FIELDS}
+    assert [body["apmng_rf"]["para"] for body in controller.bodies if "apmng_rf" in body] == [
+        {"start": 0, "end": 9},
+        {"start": 10, "end": 19},
+    ]
+    assert all(
+        body["apmng_rf"] == {**RADIO_REQUEST["apmng_rf"], "para": body["apmng_rf"]["para"]}
+        for body in controller.bodies
+        if "apmng_rf" in body
+    )
+
+
+@pytest.mark.parametrize(
+    ("key", "overrides", "expected"),
+    [
+        *(
+            ("enabled", {"rf_state": raw}, value)
+            for raw, value in (("on", True), ("off", False), ("1", None), ("ON", None), ("", None))
+        ),
+        ("enabled", {"rf_state": []}, None),
+        ("enabled", {"rf_state": None}, None),
+        *(
+            ("mode", {"mode": raw}, value)
+            for raw, value in (
+                ("0", "802_11a"),
+                ("1", "802_11b"),
+                ("2", "802_11g"),
+                ("3", "802_11n_2_4ghz"),
+                ("4", "802_11n_5ghz"),
+                ("5", "802_11b_g"),
+                ("6", "802_11b_g_n"),
+                ("7", "802_11a_n"),
+                ("8", None),
+                ("9", "802_11a_n_ac"),
+                ("10", "802_11b_g_n_ax"),
+                ("11", "802_11a_n_ac_ax"),
+                ("12", "802_11b_g_n_ax_be"),
+                ("13", "802_11a_n_ac_ax_be"),
+                ("14", None),
+                ("", None),
+                (6, None),
+            )
+        ),
+        *(
+            ("channel_width", {"bandwidth": raw}, value)
+            for raw, value in (
+                ("2", "auto"),
+                ("0", "20mhz"),
+                ("1", "40mhz"),
+                ("3", "80mhz"),
+                ("4", "80_plus_80mhz"),
+                ("5", "160mhz"),
+                ("6", "240mhz"),
+                ("7", None),
+                ("-1", None),
+            )
+        ),
+        *(
+            ("configured_channel", {"channel": raw}, value)
+            for raw, value in (
+                ("-1", "auto"),
+                ("1", 1),
+                ("36", 36),
+                ("165", 165),
+                ("0", None),
+                ("-2", None),
+                ("auto", None),
+                ("", None),
+                (None, None),
+                (True, None),
+            )
+        ),
+        *(
+            ("channel_switching", {"channel": "-1", "rf_chnl_dcs": raw}, value)
+            for raw, value in (("0", "auto"), ("1", "manual"), ("2", "off"), ("3", None))
+        ),
+        *(
+            ("channel_switching", {"channel": channel, "rf_chnl_dcs": "1"}, None)
+            for channel in ("36", "1", "0", "-2", "auto")
+        ),
+        *(
+            ("power_level", {"power": raw}, value)
+            for raw, value in (("1", 1), ("10", 10), ("0", None), ("11", None), ("high", None))
+        ),
+        ("client_limit", {"max_usr": "119"}, 119),
+        ("client_limit", {"max_usr": "many"}, None),
+        *(
+            ("beacon_interval", {"bcn_intvl": raw}, value)
+            for raw, value in (("100", 100), ("40", 40), ("1000", 1000), ("soon", None))
+        ),
+        ("dtim_period", {"dtim_prd": "3"}, 3),
+        ("rts_threshold", {"rts_thr": "2347"}, 2347),
+        ("fragmentation_threshold", {"frag_thr": "256"}, 256),
+        ("fragmentation_threshold", {"frag_thr": "-"}, None),
+        *(
+            (key, {field: raw}, value)
+            for key, field in (
+                ("short_guard_interval", "short_gi"),
+                ("wmm", "wmm"),
+                ("airtime_scheduling", "airtime"),
+                ("weak_signal_restriction", "rssi_restrict"),
+                ("weak_signal_disconnect", "rssi_kick"),
+                ("client_forward_access", "reject_enable"),
+                ("broadcast_probe_response", "brd_probe"),
+            )
+            for raw, value in (("on", True), ("off", False), ("null", None), ("true", None))
+        ),
+        *(
+            (key, {switch: state, field: raw}, value)
+            for key, switch, field in (
+                ("weak_signal_restriction_threshold", "rssi_restrict", "rssi_restrict_val"),
+                ("weak_signal_disconnect_threshold", "rssi_kick", "rssi_kick_val"),
+            )
+            for state, raw, value in (
+                ("on", "-85", -85),
+                ("on", "0", 0),
+                ("on", "weak", None),
+                ("off", "-85", None),
+                ("off", "0", None),
+                ("null", "-85", None),
+            )
+        ),
+        ("client_forward_access_threshold", {"reject_limit": "-95"}, -95),
+        ("client_forward_access_threshold", {"reject_limit": "-"}, None),
+    ],
+)
+async def test_radio_values_follow_the_catalog(key, overrides, expected):
+    api, _, controller = make_api()
+    controller.tables[RADIO_TABLE] = [radio_row(0, 1, **overrides)]
+    (radio,) = (await api.async_get_configuration()).radios
+    assert (type(radio.values[key]), radio.values[key]) == (type(expected), expected)
+
+
+@pytest.mark.parametrize("weird", [None, [], {}, True, "x" * 1000, "\x00", "\u2028"])
+async def test_radio_values_never_raise_on_unexpected_value_forms(weird):
+    api, _, controller = make_api()
+    row = {item.field: weird for item in RADIO_FIELDS} | {"rf_id": "1", "freq_unit": "1"}
+    controller.tables[RADIO_TABLE] = [row]
+    (radio,) = (await api.async_get_configuration()).radios
+    assert set(radio.values) == {item.key for item in RADIO_FIELDS}
+    assert all(value is None for value in radio.values.values())
+
+
+async def test_radio_identity_is_the_ap_address_and_unit_not_row_order_or_name():
+    api, _, controller = make_api()
+    rows = [
+        radio_row(entry, unit, ap_name=f"Name {entry}") for entry in (3, 0, 7) for unit in (2, 1)
+    ]
+    controller.tables[RADIO_TABLE] = rows
+    first = await api.async_get_configuration()
+    expected = {(str(entry), str(unit)) for entry in (0, 3, 7) for unit in (1, 2)}
+    assert {(radio.ap_entry_id, radio.unit) for radio in first.radios} == expected
+    controller.tables[RADIO_TABLE] = [{**row, "ap_name": "Renamed"} for row in reversed(rows)]
+    second = await api.async_get_configuration()
+    assert {(radio.ap_entry_id, radio.unit): radio.values for radio in second.radios} == {
+        (radio.ap_entry_id, radio.unit): radio.values for radio in first.radios
+    }
+    controller.tables[RADIO_TABLE] = [radio_row(2, 3, freq_unit="2")]
+    (radio,) = (await api.async_get_configuration()).radios
+    assert (radio.ap_entry_id, radio.unit) == ("2", "2")
+
+
+async def test_ap_template_rows_are_not_radios_of_any_ap():
+    api, _, controller = make_api()
+    controller.tables[RADIO_TABLE] = [
+        radio_row(0, 1),
+        radio_row(1, 1, ap_type="template"),
+        radio_row(1, 2, ap_type="template"),
+    ]
+    state = await api.async_get_configuration()
+    assert [(radio.ap_entry_id, radio.unit) for radio in state.radios] == [("0", "1")]
+    assert RADIO_SOURCE in state.available_sections
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["no_radio_id", "bad_radio_id", "negative_radio_id", "no_unit", "bad_unit", "duplicate"],
+)
+async def test_a_radio_row_that_cannot_be_told_apart_makes_the_whole_table_unusable(change):
+    api, _, controller = make_api()
+    rows = [radio_row(0, 1), radio_row(0, 2)]
+    if change == "no_radio_id":
+        del rows[1]["rf_id"]
+    elif change == "bad_radio_id":
+        rows[1]["rf_id"] = "one"
+    elif change == "negative_radio_id":
+        rows[1]["rf_id"] = "-17"
+    elif change == "no_unit":
+        del rows[1]["freq_unit"]
+    elif change == "bad_unit":
+        rows[1]["freq_unit"] = "5GHz"
+    else:
+        rows[1] = dict(rows[0], rf_state="off")
+    controller.tables[RADIO_TABLE] = rows
+    state = await api.async_get_configuration()
+    assert state.radios == ()
+    assert RADIO_SOURCE not in state.available_sections
+    assert state.available_sections == {item.source for item in CONFIGURATION_FIELDS}
+
+
+@pytest.mark.parametrize(
+    "change", ["huge_count", "over_the_bound", "short_page", "nested_row", "rejected_module"]
+)
+async def test_unreadable_radio_table_leaves_radios_absent_without_hiding_the_settings(change):
+    api, _, controller = make_api()
+    if change == "huge_count":
+        controller.counts[RADIO_TABLE] = 10**9
+    elif change == "over_the_bound":
+        controller.counts[RADIO_TABLE] = 601
+    elif change == "short_page":
+        controller.counts[RADIO_TABLE] = 12
+    elif change == "nested_row":
+        controller.tables[RADIO_TABLE] = [radio_row(0, 1), "unexpected"]
+    else:
+        controller.rejected = {"apmng_rf"}
+    state = await api.async_get_configuration()
+    assert state.radios == ()
+    assert RADIO_SOURCE not in state.available_sections
+    assert state.available_sections == {item.source for item in CONFIGURATION_FIELDS}
+    assert set(state.values) == set(FIELDS)
+    assert len([body for body in controller.bodies if "apmng_rf" in body]) == 1
+
+
+async def test_failed_sign_in_is_not_mistaken_for_an_unreadable_radio_table():
+    api, _, controller = make_api()
+    controller.inject = {
+        1: Response({"error_code": -40401, "data": {"code": -40401}}, status=401),
+        2: Response(text="not json"),
+    }
+    with pytest.raises(Ac100ProtocolError):
+        await api.async_get_configuration()
+    assert len(controller.bodies) == 3
+
+
+def test_radio_catalog_is_unique_typed_and_limited_to_scalar_settings():
+    keys = [item.key for item in RADIO_FIELDS]
+    fields = [item.field for item in RADIO_FIELDS]
+    assert len(set(keys)) == len(keys) and len(set(fields)) == len(fields)
+    for item in RADIO_FIELDS:
+        assert item.key == item.key.lower() and item.key.replace("_", "").isalnum()
+        if item.kind == "bool":
+            assert {state for _, state in item.mapping} == {True, False}
+        elif item.kind == "enum":
+            assert item.options and len(item.options) == len(item.mapping)
+        assert item.unit is None or (item.kind == "number" and not item.mapping)
+        assert item.applies_when is None or item.applies_when[0] in fields
+    assert not {"ap_name", "rf_name", "freq_name", "mutex_channel", "multi_radio"} & set(fields)
+    assert not [field for field in fields if field.startswith(("ap_", "sta_"))]
+    assert {item.key for item in RADIO_FIELDS}.isdisjoint(
+        {"channel", "channel_load", "connected_clients"}
+    )
+
+
 async def test_debug_logs_contain_counts_only(caplog):
     caplog.set_level(logging.DEBUG, logger="custom_components.tplink_ac100.api")
     api, _, _ = make_api()
@@ -909,6 +1264,7 @@ def test_states_and_snapshot_defaults_are_empty_immutable_and_independent():
         Controller("02:00:00:00:00:01", "TL-AC100", "5.0", "1.0.5", {}, 1.0, 1), (), ()
     )
     assert snapshot.monitoring is None and snapshot.configuration is None
+    assert ConfigurationState().radios == ()
     state = MonitoringState(available_sections=frozenset({"port.port"}))
     refreshed = replace(snapshot, monitoring=state, configuration=ConfigurationState())
     assert refreshed.monitoring is state

@@ -16,6 +16,14 @@
   start a password reauthentication.
 - Source-specific availability: failed optional reads do not expose stale values as
   healthy data. Diagnostics report aggregate coverage, not raw setting values.
+- Read-only per-radio AP settings as diagnostic entities on each AP, disabled by default:
+  radio enabled, radio mode, channel width, configured channel (Auto or a number), dynamic
+  channel switching, transmit power level (1-10, not dBm), client limit, beacon interval,
+  DTIM period, RTS and fragmentation thresholds, short guard interval, WMM, airtime
+  scheduling, weak-signal restriction and disconnect rules with their dBm thresholds, client
+  forward access and broadcast probe response. The controller's radio table is read with the
+  15-minute settings read, so these entities also start that read when enabled. A setting
+  that does not apply, such as a weak-signal threshold while its rule is off, is unknown.
 
 ### Changed
 

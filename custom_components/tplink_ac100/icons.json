@@ -28,6 +28,21 @@
       "radio_channel_load": {
         "default": "mdi:gauge"
       },
+      "radio_configured_channel": {
+        "default": "mdi:sine-wave"
+      },
+      "radio_channel_width": {
+        "default": "mdi:arrow-expand-horizontal"
+      },
+      "radio_power_level": {
+        "default": "mdi:signal"
+      },
+      "radio_client_limit": {
+        "default": "mdi:account-multiple"
+      },
+      "radio_beacon_interval": {
+        "default": "mdi:timer-outline"
+      },
       "interface_transmit_packet_rate": {
         "default": "mdi:upload-network"
       },
@@ -39,6 +54,12 @@
       }
     },
     "binary_sensor": {
+      "radio_enabled": {
+        "default": "mdi:wifi",
+        "state": {
+          "off": "mdi:wifi-off"
+        }
+      },
       "controller_writable": {
         "default": "mdi:lock-open-variant",
         "state": {

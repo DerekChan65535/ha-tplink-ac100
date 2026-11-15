@@ -19,6 +19,10 @@ from .models import AccessPoint, ApRadio, Client, ClientRadio, Controller, Snaps
 from .monitoring import (
     CONFIGURATION_FIELDS,
     CONFIGURATION_SOURCES,
+    RADIO_FIELDS,
+    RADIO_MODULE,
+    RADIO_SOURCE,
+    RADIO_TABLE,
     ApFirmware,
     ConfigField,
     ConfigurationState,
@@ -26,6 +30,8 @@ from .monitoring import (
     InterfaceTraffic,
     MonitoringState,
     PortStatus,
+    RadioField,
+    RadioSettings,
     Scalar,
 )
 
@@ -35,6 +41,8 @@ _PAGE_SIZE = 10
 # Optional tables are bounded by the AC100's limits (100 APs, 60 interfaces, 5 ports): a larger
 # count is treated as invalid instead of paged through.
 _MAX_OPTIONAL_ROWS = 256
+# One row per AP radio: at most 100 APs with at most 6 radios each (max_radio_per_ap).
+_MAX_RADIO_ROWS = 600
 _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=15)
 _LEGACY_SALT = "RDpbLfCPsJZ7fiv"
 _LEGACY_ALPHABET = (
@@ -415,14 +423,60 @@ def _config_value(item: ConfigField, raw: Any) -> Scalar:
     return int(number) if number.is_integer() else number
 
 
-def _parse_configuration(sections: dict[str, dict[str, Any]]) -> ConfigurationState:
+def _radio_value(item: RadioField, row: dict[str, Any]) -> Scalar:
+    """Project one catalogued field of a radio row; an unknown or inapplicable one is None."""
+    if item.applies_when is not None and row.get(item.applies_when[0]) != item.applies_when[1]:
+        return None
+    raw = row.get(item.field)
+    if (state := _choice(dict(item.mapping), raw)) is not None:
+        return state
+    if item.kind != "number":
+        return None
+    number = _finite(raw)
+    if number is None:
+        return None
+    if item.minimum is not None and number < item.minimum:
+        return None
+    if item.maximum is not None and number > item.maximum:
+        return None
+    return int(number) if number.is_integer() else number
+
+
+def _parse_radios(rows: list[dict[str, Any]]) -> tuple[RadioSettings, ...]:
+    """Keep each radio's AP address, unit and catalogued settings; the AP name is dropped.
+
+    ``rf_id`` is the AP's ``entry_id`` times 16 plus the radio's local index (the web UI splits
+    it the same way). Rows of AP templates are not radios of any AP. A row or a pair of rows
+    that cannot be told apart makes the whole table unusable.
+    """
+    radios: dict[tuple[str, str], RadioSettings] = {}
+    for row in rows:
+        if row.get("ap_type") == "template":
+            continue
+        radio_id, unit = _count(row.get("rf_id")), _count(row.get("freq_unit"))
+        if radio_id is None or unit is None:
+            raise Ac100ProtocolError("Invalid radio data")
+        identity = (str(radio_id // 16), str(unit))
+        if identity in radios:
+            raise Ac100ProtocolError("Duplicate radio identity")
+        values = {item.key: _radio_value(item, row) for item in RADIO_FIELDS}
+        radios[identity] = RadioSettings(*identity, values)
+    return tuple(radios.values())
+
+
+def _parse_configuration(
+    sections: dict[str, dict[str, Any]], radios: tuple[RadioSettings, ...] | None = None
+) -> ConfigurationState:
     """Read exactly the catalogued fields; every other field of a section is ignored."""
     values = {
         item.key: _config_value(item, sections[item.source].get(item.field))
         for item in CONFIGURATION_FIELDS
         if item.source in sections
     }
-    return ConfigurationState(values, frozenset(sections))
+    available = set(sections)
+    if radios is not None:
+        available.add(RADIO_SOURCE)
+    return ConfigurationState(values, frozenset(available), radios or ())
 
 
 class Ac100Api:
@@ -691,7 +745,16 @@ class Ac100Api:
         rows = await self._table("system", "ifstat_list", None, max_rows=_MAX_OPTIONAL_ROWS)
         return tuple(map(_parse_interface, rows))
 
-    async def async_get_monitoring(self) -> MonitoringState:
+    async def _read_radios(self) -> tuple[RadioSettings, ...]:
+        rows = await self._table(
+            RADIO_MODULE,
+            RADIO_TABLE,
+            [{"group_id": ["-1"], "ap_status": ["0"]}],
+            max_rows=_MAX_RADIO_ROWS,
+        )
+        return _parse_radios(rows)
+
+    async def async_get_monitoring(self, *, wireless_services: bool = False) -> MonitoringState:
         """Read slow, credential-free status; a source that is rejected or garbled is left out.
 
         Every request is a GET under the shared lock and session. Connection, authentication and
@@ -732,18 +795,22 @@ class Ac100Api:
             return state
 
     async def async_get_configuration(self) -> ConfigurationState:
-        """Read the allow-listed CONFIGURATION_FIELDS; a section that cannot be read is left out.
+        """Read the allow-listed CONFIGURATION_FIELDS and RADIO_FIELDS settings.
 
-        Every request is a GET under the shared lock and session. Connection, authentication
-        and session errors propagate. Only catalogued fields leave this method.
+        A section or the radio table that cannot be read is left out. Every request is a GET
+        under the shared lock and session. Connection, authentication and session errors
+        propagate. Only catalogued fields leave this method.
         """
         async with self._lock:
             self._ensure_open()
-            state = _parse_configuration(await self._get_sections(CONFIGURATION_SOURCES))
+            sections = await self._get_sections(CONFIGURATION_SOURCES)
+            radios = await self._optional(self._read_radios())
+            state = _parse_configuration(sections, radios)
             _LOGGER.debug(
-                "Controller configuration received (sources=%s, values=%s)",
+                "Controller configuration received (sources=%s, values=%s, radios=%s)",
                 len(state.available_sections),
                 len(state.values),
+                len(state.radios),
             )
             return state
 

@@ -6,7 +6,13 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import Ac100Coordinator
 from .device_info import ap_device_info
-from .models import AccessPoint
+from .models import AccessPoint, ApRadio
+
+
+def band_label(radio: ApRadio) -> str:
+    """Use the controller's band name, or a plain label when it sends none (--- or blank)."""
+    band = radio.frequency.strip()
+    return band if band and band != "---" else f"Radio {radio.unit}"
 
 
 class Ac100Entity(CoordinatorEntity[Ac100Coordinator]):
