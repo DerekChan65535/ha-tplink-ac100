@@ -1,0 +1,209 @@
+{
+  "error_code": 0,
+  "host_management": {
+    "count": {
+      "host_info": 16
+    },
+    "host_info": [
+      {
+        "host_info_10": {
+          "brand": "others",
+          "up_speed": "1",
+          "force_bind_enable": "off",
+          "connect_date": "2026%2f11%2f15",
+          "encode": "1",
+          "ip": "192.0.2.24",
+          "limit": "0",
+          "connect_time": "02%3a57%3a30",
+          "mac": "02-00-00-00-00-10",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%203",
+          "rf_entry": [
+            {
+              "freq_name": "5GHz",
+              "rssi": "-70",
+              "freq_unit": "2",
+              "nego_rate": "663"
+            }
+          ],
+          "bind_radio_id": [],
+          "serv_id": "0",
+          "down_speed": "1",
+          "time_obj_array": [],
+          "down_limit": "0",
+          "up_limit": "0",
+          "vlan_id": "0",
+          "operating_system": "windows",
+          "bind_enable": "off",
+          "ap_name": "Example%20AP%203",
+          "hostname": "Example%20AP%206"
+        }
+      },
+      {
+        "host_info_11": {
+          "brand": "apple",
+          "up_speed": "4",
+          "force_bind_enable": "off",
+          "connect_date": "2026%2f11%2f15",
+          "encode": "1",
+          "ip": "192.0.2.25",
+          "limit": "0",
+          "connect_time": "03%3a50%3a03",
+          "mac": "02-00-00-00-00-11",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%203",
+          "rf_entry": [
+            {
+              "freq_name": "5GHz",
+              "rssi": "-71",
+              "freq_unit": "2",
+              "nego_rate": "737"
+            }
+          ],
+          "bind_radio_id": [],
+          "serv_id": "0",
+          "down_speed": "20",
+          "time_obj_array": [],
+          "down_limit": "0",
+          "up_limit": "0",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "bind_enable": "off",
+          "ap_name": "Example%20AP%203"
+        }
+      },
+      {
+        "host_info_12": {
+          "brand": "---",
+          "up_speed": "1",
+          "force_bind_enable": "off",
+          "connect_date": "2026%2f11%2f15",
+          "encode": "1",
+          "ip": "192.0.2.26",
+          "limit": "0",
+          "connect_time": "02%3a58%3a58",
+          "mac": "02-00-00-00-00-12",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%202",
+          "rf_entry": [
+            {
+              "freq_name": "2.4GHz",
+              "rssi": "-38",
+              "freq_unit": "1",
+              "nego_rate": "61"
+            }
+          ],
+          "bind_radio_id": [],
+          "serv_id": "0",
+          "down_speed": "1",
+          "time_obj_array": [],
+          "down_limit": "0",
+          "up_limit": "0",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "bind_enable": "off",
+          "ap_name": "Example%20AP%204"
+        }
+      },
+      {
+        "host_info_13": {
+          "brand": "---",
+          "up_speed": "---",
+          "force_bind_enable": "off",
+          "connect_date": "2026%2f11%2f15",
+          "encode": "1",
+          "ip": "192.0.2.27",
+          "limit": "0",
+          "connect_time": "02%3a57%3a32",
+          "mac": "02-00-00-00-00-13",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%204",
+          "rf_entry": [
+            {
+              "freq_name": "2.4GHz",
+              "rssi": "-58",
+              "freq_unit": "1",
+              "nego_rate": "73"
+            }
+          ],
+          "bind_radio_id": [],
+          "serv_id": "0",
+          "down_speed": "---",
+          "time_obj_array": [],
+          "down_limit": "0",
+          "up_limit": "0",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "bind_enable": "off",
+          "ap_name": "Example%20AP%202"
+        }
+      },
+      {
+        "host_info_14": {
+          "brand": "---",
+          "up_speed": "1",
+          "force_bind_enable": "off",
+          "connect_date": "2026%2f11%2f15",
+          "encode": "1",
+          "ip": "192.0.2.27",
+          "limit": "0",
+          "connect_time": "02%3a57%3a32",
+          "mac": "02-00-00-00-00-13",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%204",
+          "rf_entry": [
+            {
+              "freq_name": "2.4GHz",
+              "rssi": "-58",
+              "freq_unit": "1",
+              "nego_rate": "73"
+            }
+          ],
+          "bind_radio_id": [],
+          "serv_id": "0",
+          "down_speed": "1",
+          "time_obj_array": [],
+          "down_limit": "0",
+          "up_limit": "0",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "bind_enable": "off",
+          "ap_name": "Example%20AP%205"
+        }
+      },
+      {
+        "host_info_15": {
+          "brand": "others",
+          "up_speed": "5",
+          "force_bind_enable": "off",
+          "connect_date": "2026%2f11%2f15",
+          "encode": "1",
+          "ip": "192.0.2.28",
+          "limit": "0",
+          "connect_time": "02%3a57%3a32",
+          "mac": "02-00-00-00-00-14",
+          "ipv6": "%3a%3a",
+          "ssid": "Example%20WiFi%203",
+          "rf_entry": [
+            {
+              "freq_name": "5GHz",
+              "rssi": "-72",
+              "freq_unit": "2",
+              "nego_rate": "368"
+            }
+          ],
+          "bind_radio_id": [],
+          "serv_id": "0",
+          "down_speed": "3",
+          "time_obj_array": [],
+          "down_limit": "0",
+          "up_limit": "0",
+          "vlan_id": "0",
+          "operating_system": "---",
+          "bind_enable": "off",
+          "ap_name": "Example%20AP%205"
+        }
+      }
+    ]
+  }
+}

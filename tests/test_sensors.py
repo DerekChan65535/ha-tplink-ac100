@@ -25,12 +25,18 @@ from custom_components.tplink_ac100.api import Ac100Api
 from custom_components.tplink_ac100.const import DOMAIN
 from custom_components.tplink_ac100.models import AccessPoint, ApRadio, Client, Controller, Snapshot
 from custom_components.tplink_ac100.monitoring import ConfigurationState, MonitoringState
-from custom_components.tplink_ac100.sensor import AP_SENSORS, CONTROLLER_SENSORS, RADIO_SENSORS
+from custom_components.tplink_ac100.sensor import (
+    AP_SENSORS,
+    AP_SPEED_SENSORS,
+    CONTROLLER_SENSORS,
+    RADIO_SENSORS,
+)
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 NOW = datetime(2026, 11, 15, 12, 0, tzinfo=UTC)
-ENGLISH = Path(__file__).parents[1] / "custom_components/tplink_ac100/translations/en.json"
+COMPONENT = Path(__file__).parents[1] / "custom_components/tplink_ac100"
+ENGLISH = COMPONENT / "translations/en.json"
 
 
 @pytest.fixture
@@ -443,10 +449,136 @@ async def test_unload_removes_discovery_listeners(
     assert entity_registry.async_get_entity_id("sensor", DOMAIN, identity) is None
 
 
+# Wi-Fi speeds
+
+
+def speed_client(index, ap_name, upload, download):
+    return Client(
+        str(index), f"02:00:00:00:01:{index:02x}", None, f"192.0.2.{index + 30}", "",
+        "Example wireless", ap_name, (), upload, download,
+    )  # fmt: skip
+
+
+def speeds(hass, registry, snapshot, ap=None):
+    """The upload and download speed states of the controller or of one AP."""
+    return tuple(
+        sensor_state(hass, registry, snapshot, key, ap).state
+        for key in ("wifi_upload_speed", "wifi_download_speed")
+    )
+
+
+async def publish(hass, coordinator, snapshot):
+    coordinator.async_set_updated_data(snapshot)
+    await hass.async_block_till_done()
+
+
+async def test_wifi_speeds_are_enabled_measurements_in_kilobytes_per_second(
+    hass, sensor_setup, sensor_snapshot, entity_registry
+):
+    """No client reports a speed in the fixture, so the totals are unknown, not zero."""
+    ap = sensor_snapshot.aps[0]
+    for owner in (None, ap):
+        for key in ("wifi_upload_speed", "wifi_download_speed"):
+            row = entity_registry.async_get(entity_id(entity_registry, sensor_snapshot, key, owner))
+            assert row.disabled_by is None
+            assert row.entity_category is None
+            state = hass.states.get(row.entity_id)
+            assert state.state == STATE_UNKNOWN
+            assert state.attributes["device_class"] == "data_rate"
+            assert state.attributes["unit_of_measurement"] == "kB/s"
+            assert state.attributes["state_class"] == "measurement"
+
+
+async def test_controller_speeds_total_the_clients_that_report_one(
+    hass, sensor_setup, sensor_snapshot, entity_registry
+):
+    _, coordinator, _ = sensor_setup
+    clients = (
+        speed_client(0, "AP 0", 12.0, 340.0),
+        speed_client(1, "AP 0", 3.0, None),
+        speed_client(2, "Unlisted AP", None, 7.0),
+        speed_client(3, "AP 0", None, None),
+    )
+    await publish(hass, coordinator, replace(sensor_snapshot, clients=clients))
+    assert speeds(hass, entity_registry, sensor_snapshot) == ("15.0", "347.0")
+
+    await publish(hass, coordinator, replace(sensor_snapshot, clients=()))
+    assert speeds(hass, entity_registry, sensor_snapshot) == ("0.0", "0.0")
+
+    await publish(hass, coordinator, replace(sensor_snapshot, clients=clients[3:]))
+    assert speeds(hass, entity_registry, sensor_snapshot) == (STATE_UNKNOWN, STATE_UNKNOWN)
+
+
+async def test_ap_speeds_total_the_clients_that_report_the_aps_name(
+    hass, sensor_setup, sensor_snapshot, entity_registry
+):
+    _, coordinator, _ = sensor_setup
+    first, connecting, offline = sensor_snapshot.aps
+    second = replace(connecting, link_status="1")
+    new = replace(first, mac="02:00:00:00:00:99", entry_id="99", name="AP 3")
+    clients = (
+        speed_client(0, "AP 0", 12.0, 340.0),
+        speed_client(1, "AP 0", 3.0, None),
+        speed_client(2, "AP 1", 5.0, 7.0),
+        speed_client(3, "AP 2", 9.0, 9.0),
+        speed_client(4, "Unlisted AP", 100.0, 100.0),
+        speed_client(5, "AP 3", None, None),
+    )
+    assert speeds(hass, entity_registry, sensor_snapshot, second) == (STATE_UNAVAILABLE,) * 2
+
+    snapshot = replace(sensor_snapshot, aps=(first, second, offline, new), clients=clients)
+    await publish(hass, coordinator, snapshot)
+    assert speeds(hass, entity_registry, snapshot, first) == ("15.0", "340.0")
+    assert speeds(hass, entity_registry, snapshot, second) == ("5.0", "7.0")
+    assert speeds(hass, entity_registry, snapshot, offline) == (STATE_UNAVAILABLE,) * 2
+    assert speeds(hass, entity_registry, snapshot, new) == (STATE_UNKNOWN,) * 2
+
+    await publish(hass, coordinator, replace(snapshot, clients=clients[:1]))
+    assert speeds(hass, entity_registry, snapshot, first) == ("12.0", "340.0")
+    assert speeds(hass, entity_registry, snapshot, second) == ("0.0", "0.0")
+
+
+@pytest.mark.parametrize(
+    ("names", "expected"),
+    [
+        pytest.param(("AP 0", "AP 1"), (("15.0", "340.0"), ("5.0", "7.0")), id="different names"),
+        pytest.param(("AP 0", "AP 0"), ((STATE_UNAVAILABLE,) * 2,) * 2, id="the same name"),
+        pytest.param(
+            ("AP 0", "ap 0"), (("15.0", "340.0"), ("0.0", "0.0")), id="names that differ in case"
+        ),
+        pytest.param(("", "AP 1"), ((STATE_UNAVAILABLE,) * 2, ("5.0", "7.0")), id="a blank name"),
+        pytest.param(("", ""), ((STATE_UNAVAILABLE,) * 2,) * 2, id="two blank names"),
+    ],
+)
+async def test_ap_speeds_need_a_name_that_only_one_ap_has(
+    hass, sensor_setup, sensor_snapshot, entity_registry, names, expected
+):
+    """The controller tells a client's AP only by name, so a shared name cannot be split."""
+    _, coordinator, _ = sensor_setup
+    first, connecting, offline = sensor_snapshot.aps
+    aps = (
+        replace(first, name=names[0]),
+        replace(connecting, link_status="1", name=names[1]),
+        offline,
+    )
+    clients = (
+        speed_client(0, "AP 0", 12.0, 340.0),
+        speed_client(1, "AP 0", 3.0, None),
+        speed_client(2, "AP 1", 5.0, 7.0),
+    )
+    snapshot = replace(sensor_snapshot, aps=aps, clients=clients)
+    await publish(hass, coordinator, snapshot)
+    assert (
+        speeds(hass, entity_registry, snapshot, aps[0]),
+        speeds(hass, entity_registry, snapshot, aps[1]),
+    ) == expected
+    assert speeds(hass, entity_registry, snapshot) == ("20.0", "347.0")
+
+
 def test_every_sensor_translation_key_has_an_english_name_with_its_placeholders():
     """An entity whose translation key has no name is shown as just its device name."""
     names = json.loads(ENGLISH.read_text())["entity"]["sensor"]
-    descriptions = (*CONTROLLER_SENSORS, *AP_SENSORS, *RADIO_SENSORS)
+    descriptions = (*CONTROLLER_SENSORS, *AP_SENSORS, *AP_SPEED_SENSORS, *RADIO_SENSORS)
     keys = {description.translation_key for description in descriptions} | {"cpu_usage"}
     for key in keys:
         assert key in names, key
@@ -455,3 +587,9 @@ def test_every_sensor_translation_key_has_an_english_name_with_its_placeholders(
             {"band"} if key.startswith("radio_") else {"core"} if key == "cpu_usage" else set()
         )
         assert placeholders == expected, key
+
+
+def test_the_speed_sensors_have_icons():
+    icons = json.loads((COMPONENT / "icons.json").read_text())["entity"]["sensor"]
+    assert icons["wifi_upload_speed"]["default"] == "mdi:upload"
+    assert icons["wifi_download_speed"]["default"] == "mdi:download"

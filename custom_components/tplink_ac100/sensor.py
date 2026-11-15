@@ -2,7 +2,7 @@
 
 import ipaddress
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -13,7 +13,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfDataRate, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
@@ -21,7 +21,7 @@ from homeassistant.util import dt as dt_util
 from .configuration_entity import add_configuration_entities
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
 from .entity import Ac100Entity, band_label
-from .models import AccessPoint, ApRadio, Snapshot
+from .models import AccessPoint, ApRadio, Client, Snapshot
 from .monitoring_sensor import add_monitoring_sensors
 from .radio_entity import add_radio_settings
 from .wireless_service import add_wireless_service_sensors
@@ -45,6 +45,19 @@ def _usable_ip(address: str) -> str | None:
 def _core_number(core: str) -> str:
     """Show the raw key core1 as 1; the raw key itself stays in the unique ID."""
     return re.sub(r"^(?:cpu|core)", "", core, flags=re.IGNORECASE) or core
+
+
+def _speed_total(clients: Iterable[Client], field: str) -> float | None:
+    """Add up the known speeds in KB/s of a group of clients.
+
+    A client without a known speed adds nothing. The total is unknown when the group has clients
+    but none reports a speed, and zero when it has no clients.
+    """
+    group = tuple(clients)
+    speeds = [speed for client in group if (speed := getattr(client, field)) is not None]
+    if speeds:
+        return sum(speeds)
+    return None if group else 0.0
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -114,6 +127,22 @@ CONTROLLER_SENSORS = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda snapshot: len(snapshot.clients),
     ),
+    Ac100ControllerSensorDescription(
+        key="wifi_upload_speed",
+        translation_key="wifi_upload_speed",
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.KILOBYTES_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda snapshot: _speed_total(snapshot.clients, "upload_kilobytes_per_second"),
+    ),
+    Ac100ControllerSensorDescription(
+        key="wifi_download_speed",
+        translation_key="wifi_download_speed",
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.KILOBYTES_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda snapshot: _speed_total(snapshot.clients, "download_kilobytes_per_second"),
+    ),
 )
 
 
@@ -130,6 +159,13 @@ class Ac100RadioSensorDescription(SensorEntityDescription):
     """Describe a value of one radio of an online access point."""
 
     value_fn: Callable[[ApRadio], int | float | None]
+
+
+@dataclass(frozen=True, kw_only=True)
+class Ac100ApSpeedDescription(SensorEntityDescription):
+    """Describe the total of one speed of the clients that report an access point's name."""
+
+    field: str
 
 
 def _radio_attributes(ap: AccessPoint) -> dict[str, Any]:
@@ -178,6 +214,25 @@ AP_SENSORS = (
         translation_key="ip_address",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda ap: _usable_ip(ap.ip),
+    ),
+)
+
+AP_SPEED_SENSORS = (
+    Ac100ApSpeedDescription(
+        key="wifi_upload_speed",
+        translation_key="wifi_upload_speed",
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.KILOBYTES_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        field="upload_kilobytes_per_second",
+    ),
+    Ac100ApSpeedDescription(
+        key="wifi_download_speed",
+        translation_key="wifi_download_speed",
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.KILOBYTES_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        field="download_kilobytes_per_second",
     ),
 )
 
@@ -249,6 +304,10 @@ async def async_setup_entry(
                 known_aps.add(ap.mac)
                 entities.extend(
                     Ac100ApSensor(coordinator, description, ap.mac) for description in AP_SENSORS
+                )
+                entities.extend(
+                    Ac100ApClientSpeed(coordinator, description, ap.mac)
+                    for description in AP_SPEED_SENSORS
                 )
             for radio in ap.radios:
                 if radio.unit and (ap.mac, radio.unit) not in known_radios:
@@ -332,6 +391,50 @@ class Ac100ApSensor(Ac100ApTelemetry):
         ):
             return None
         return self.entity_description.attributes_fn(ap)
+
+
+class Ac100ApClientSpeed(Ac100ApTelemetry):
+    """The total speed of the clients that report an AP's name.
+
+    The controller tells only the name of the AP that a client uses. While another AP has the
+    same name, the clients cannot be told apart, so the reading is unavailable.
+    """
+
+    entity_description: Ac100ApSpeedDescription
+
+    def __init__(
+        self,
+        coordinator: Ac100Coordinator,
+        description: Ac100ApSpeedDescription,
+        ap_mac: str,
+    ) -> None:
+        """Initialize a speed sensor with the AP's stable MAC identity."""
+        super().__init__(coordinator, description.key, ap_mac)
+        self.entity_description = description
+
+    @property
+    def clients(self) -> list[Client] | None:
+        """Return the clients of the AP while its name identifies it, else None."""
+        if (ap := self.online_access_point) is None:
+            return None
+        snapshot = self.coordinator.data
+        if not ap.name or any(
+            other.name == ap.name for other in snapshot.aps if other.mac != ap.mac
+        ):
+            return None
+        return [client for client in snapshot.clients if client.ap_name == ap.name]
+
+    @property
+    def available(self) -> bool:
+        """Only an online AP with a name of its own has a reading."""
+        return super().available and self.clients is not None
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the total of the clients' known speeds in KB/s."""
+        if (clients := self.clients) is None:
+            return None
+        return _speed_total(clients, self.entity_description.field)
 
 
 class Ac100RadioSensor(Ac100ApTelemetry):

@@ -1,15 +1,12 @@
-"""Device names, links and metadata, and device-less client trackers, on the HA runtime."""
+"""Device names, links and metadata, and client devices of the trackers, on the HA runtime."""
 
 from dataclasses import replace
 from unittest.mock import AsyncMock, patch
 
-import attr
 import pytest
 from homeassistant.const import STATE_HOME, STATE_NOT_HOME, Platform
-from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers import label_registry as lr
 from pytest_homeassistant.common import MockConfigEntry, async_capture_events
 
 from custom_components.tplink_ac100.api import Ac100Api, Ac100ConnectionError
@@ -306,43 +303,62 @@ def trackers(hass, entry) -> list[er.RegistryEntry]:
     ]
 
 
-async def test_new_trackers_have_no_device_and_keep_bare_mac_ids(
+def client_device(hass, mac: str) -> dr.DeviceEntry | None:
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    return dr.async_get(hass).async_get_device_by_connection(
+        (dr.CONNECTION_NETWORK_MAC, mac), entry.entry_id
+    )
+
+
+def tracker_id(entity_registry, mac: str) -> str:
+    return entity_registry.async_get_entity_id("device_tracker", DOMAIN, mac)
+
+
+async def test_every_tracker_has_a_client_device_linked_to_the_controller(
     hass, api, ac_snapshot, device_registry
 ):
     entry = make_entry(hass)
     await setup(hass, entry)
-    rows = trackers(hass, entry)
-    assert {row.unique_id for row in rows} == {client.mac for client in ac_snapshot.clients}
-    assert all(row.device_id is None for row in rows)
-    assert all(row.disabled_by is er.RegistryEntryDisabler.INTEGRATION for row in rows)
+    rows = {row.unique_id: row for row in trackers(hass, entry)}
+    assert set(rows) == {client.mac for client in ac_snapshot.clients}
+    assert all(row.disabled_by is er.RegistryEntryDisabler.INTEGRATION for row in rows.values())
+    named, unnamed = ac_snapshot.clients
+    for client, name in ((named, "Example phone"), (unnamed, unnamed.mac)):
+        device = client_device(hass, client.mac)
+        assert device.name == name
+        assert device.connections == {(dr.CONNECTION_NETWORK_MAC, client.mac)}
+        assert not device.identifiers
+        assert device.config_entry_id == entry.entry_id
+        assert device.via_device_id == controller_device(hass).id
+        assert rows[client.mac].device_id == device.id
     devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
-    assert {device.name for device in devices} == {"TL-AC100", "Garage"}
+    assert {device.name for device in devices} == {
+        "TL-AC100",
+        "Garage",
+        "Example phone",
+        unnamed.mac,
+    }
 
 
 @pytest.mark.usefixtures("entity_registry_enabled_by_default")
-async def test_tracker_names_follow_the_client_and_survive_its_absence(
+async def test_tracker_names_are_the_device_names_and_survive_the_clients_absence(
     hass, api, ac_snapshot, entity_registry
 ):
     coordinator = await setup(hass, make_entry(hass))
     named, unnamed = ac_snapshot.clients
-    named_id = entity_registry.async_get_entity_id("device_tracker", DOMAIN, named.mac)
-    unnamed_id = entity_registry.async_get_entity_id("device_tracker", DOMAIN, unnamed.mac)
+    named_id = tracker_id(entity_registry, named.mac)
+    unnamed_id = tracker_id(entity_registry, unnamed.mac)
     assert named_id == "device_tracker.example_phone"
     assert unnamed_id == "device_tracker.02_00_00_cc_dd_02"
     assert hass.states.get(named_id).state == STATE_HOME
     assert hass.states.get(named_id).attributes["friendly_name"] == "Example phone"
     assert hass.states.get(unnamed_id).attributes["friendly_name"] == unnamed.mac
 
-    renamed = replace(named, name="Alice phone")
-    coordinator.async_set_updated_data(replace(ac_snapshot, clients=(renamed, unnamed)))
-    await hass.async_block_till_done()
-    assert hass.states.get(named_id).attributes["friendly_name"] == "Alice phone"
-
     coordinator.async_set_updated_data(replace(ac_snapshot, clients=()))
     await hass.async_block_till_done()
     away = hass.states.get(named_id)
     assert away.state == STATE_NOT_HOME
-    assert away.attributes["friendly_name"] == "Alice phone"
+    assert away.attributes["friendly_name"] == "Example phone"
     assert hass.states.get(unnamed_id).attributes["friendly_name"] == unnamed.mac
 
 
@@ -352,9 +368,7 @@ async def test_absent_tracker_keeps_its_last_name_after_a_reload(
 ):
     entry = make_entry(hass)
     await setup(hass, entry)
-    entity_id = entity_registry.async_get_entity_id(
-        "device_tracker", DOMAIN, ac_snapshot.clients[0].mac
-    )
+    entity_id = tracker_id(entity_registry, ac_snapshot.clients[0].mac)
     assert await hass.config_entries.async_unload(entry.entry_id)
     api.async_get_snapshot.return_value = replace(ac_snapshot, clients=())
     await setup(hass, entry)
@@ -363,167 +377,73 @@ async def test_absent_tracker_keeps_its_last_name_after_a_reload(
     assert state.attributes["friendly_name"] == "Example phone"
 
 
-# Existing tracker-only devices
-
-OLD_MAC = "02:00:00:ee:ee:01"
-
-
-def add_old_tracker(
-    hass, entry, *, enabled: bool = False
-) -> tuple[dr.DeviceEntry, er.RegistryEntry]:
-    """Create what earlier versions did: a MAC-only device holding one tracker."""
-    device = dr.async_get(hass).async_get_or_create(
-        config_entry_id=entry.entry_id,
-        connections={(dr.CONNECTION_NETWORK_MAC, OLD_MAC)},
-        name="Old phone",
-    )
-    tracker = er.async_get(hass).async_get_or_create(
-        "device_tracker",
-        DOMAIN,
-        OLD_MAC,
-        config_entry=entry,
-        device_id=device.id,
-        disabled_by=None if enabled else er.RegistryEntryDisabler.INTEGRATION,
-        has_entity_name=True,
-    )
-    return device, tracker
-
-
-async def test_unused_tracker_device_is_released_and_other_integrations_are_untouched(
-    hass, api, device_registry, entity_registry
+async def test_later_setups_keep_the_client_device_and_its_user_name(
+    hass, api, ac_snapshot, device_registry, entity_registry
 ):
     entry = make_entry(hass)
-    device, tracker = add_old_tracker(hass, entry)
-    other_entry = MockConfigEntry(domain="other_integration")
-    other_entry.add_to_hass(hass)
-    other_device = device_registry.async_get_or_create(
-        config_entry_id=other_entry.entry_id,
-        connections={(dr.CONNECTION_NETWORK_MAC, OLD_MAC)},
-        name="Other phone",
-    )
-    other_tracker = entity_registry.async_get_or_create(
-        "device_tracker",
-        "other_integration",
-        OLD_MAC,
-        config_entry=other_entry,
-        device_id=other_device.id,
-    )
-
-    for _ in range(2):
-        await setup(hass, entry)
-        kept = entity_registry.async_get(tracker.entity_id)
-        assert kept.id == tracker.id
-        assert kept.unique_id == OLD_MAC
-        assert kept.disabled_by is er.RegistryEntryDisabler.INTEGRATION
-        assert kept.device_id is None
-        assert kept.original_name == "Old phone"
-        assert device_registry.async_get(device.id) is None
-        assert entity_registry.async_get(other_tracker.entity_id).device_id == other_device.id
-        assert device_registry.async_get(other_device.id).name == "Other phone"
-        assert await hass.config_entries.async_unload(entry.entry_id)
-
-
-def rename(hass, device, tracker):
-    dr.async_get(hass).async_update_device(device.id, name_by_user="Alice phone")
-
-
-def place_in_area(hass, device, tracker):
-    area = ar.async_get(hass).async_create("Office")
-    dr.async_get(hass).async_update_device(device.id, area_id=area.id)
-
-
-def add_label(hass, device, tracker):
-    label = lr.async_get(hass).async_create("Keep")
-    dr.async_get(hass).async_update_device(device.id, labels={label.label_id})
-
-
-def disable_device(hass, device, tracker):
-    dr.async_get(hass).async_update_device(device.id, disabled_by=dr.DeviceEntryDisabler.USER)
-
-
-def enable_tracker(hass, device, tracker):
-    er.async_get(hass).async_update_entity(tracker.entity_id, disabled_by=None)
-
-
-def add_other_entity(hass, device, tracker):
-    other_entry = MockConfigEntry(domain="other_integration")
-    other_entry.add_to_hass(hass)
-    er.async_get(hass).async_get_or_create(
-        "sensor", "other_integration", "other", config_entry=other_entry, device_id=device.id
-    )
-
-
-def add_identifier(hass, device, tracker):
-    dr.async_get(hass).async_update_device(device.id, new_identifiers={(DOMAIN, "an-access-point")})
-
-
-def add_connection(hass, device, tracker):
-    connections = {
-        (dr.CONNECTION_NETWORK_MAC, OLD_MAC),
-        (dr.CONNECTION_BLUETOOTH, "AA:BB:CC:DD:EE:FF"),
-    }
-    dr.async_get(hass).async_update_device(device.id, new_connections=connections)
-
-
-def mark_split_from_a_shared_device(hass, device, tracker):
-    # Home Assistant has no public way to create the leftover of a pre-migration shared device.
-    registry = dr.async_get(hass)
-    registry._devices[device.id] = attr.evolve(device, composite_device_id="shared-device-id")
-
-
-@pytest.mark.parametrize(
-    "change",
-    [
-        rename,
-        place_in_area,
-        add_label,
-        disable_device,
-        enable_tracker,
-        add_other_entity,
-        add_identifier,
-        add_connection,
-        mark_split_from_a_shared_device,
-    ],
-)
-async def test_tracker_devices_with_user_choices_or_other_users_are_kept(
-    hass, api, device_registry, entity_registry, change
-):
-    def attached_entities(device):
-        return {
-            row.entity_id
-            for row in er.async_entries_for_device(
-                entity_registry, device.id, include_disabled_entities=True
-            )
-        }
-
-    entry = make_entry(hass)
-    device, tracker = add_old_tracker(hass, entry)
-    change(hass, device, tracker)
-    attached = attached_entities(device)
     await setup(hass, entry)
-    assert device_registry.async_get(device.id) is not None
-    assert entity_registry.async_get(tracker.entity_id).device_id == device.id
-    assert attached_entities(device) == attached
+    named = ac_snapshot.clients[0]
+    original = client_device(hass, named.mac)
+    device_registry.async_update_device(original.id, name_by_user="Alice phone")
+    renamed = replace(named, name="Example tablet")
+    for clients, name in (((), "Example phone"), ((renamed,), "Example tablet")):
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        api.async_get_snapshot.return_value = replace(ac_snapshot, clients=clients)
+        await setup(hass, entry)
+        device = client_device(hass, named.mac)
+        assert device.id == original.id
+        assert (device.name, device.name_by_user) == (name, "Alice phone")
+        tracker = entity_registry.async_get(tracker_id(entity_registry, named.mac))
+        assert tracker.device_id == device.id
 
 
-async def test_tracker_on_another_integrations_device_never_removes_that_device(
-    hass, api, device_registry, entity_registry
+@pytest.mark.parametrize("present", [True, False])
+async def test_tracker_without_a_device_gets_one_again(
+    hass, api, ac_snapshot, entity_registry, present
 ):
+    """Version 0.2.0 detached unused trackers from their devices and removed those devices.
+
+    A client that is away has no name to give the new device, which then takes its MAC address
+    instead of the title of the config entry.
+    """
     entry = make_entry(hass)
-    other_entry = MockConfigEntry(domain="other_integration")
-    other_entry.add_to_hass(hass)
-    other_device = device_registry.async_get_or_create(
-        config_entry_id=other_entry.entry_id,
-        connections={(dr.CONNECTION_NETWORK_MAC, OLD_MAC)},
-        name="Other phone",
-    )
-    entity_registry.async_get_or_create(
+    named = ac_snapshot.clients[0]
+    row = entity_registry.async_get_or_create(
         "device_tracker",
         DOMAIN,
-        OLD_MAC,
+        named.mac,
         config_entry=entry,
-        device_id=other_device.id,
         disabled_by=er.RegistryEntryDisabler.INTEGRATION,
     )
+    assert row.device_id is None
+    api.async_get_snapshot.return_value = replace(
+        ac_snapshot, clients=ac_snapshot.clients if present else ()
+    )
     await setup(hass, entry)
-    assert device_registry.async_get(other_device.id).name == "Other phone"
+    device = client_device(hass, named.mac)
+    assert device.name == ("Example phone" if present else named.mac)
+    assert device.via_device_id == controller_device(hass).id
+    assert entity_registry.async_get(row.entity_id).device_id == device.id
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_tracker_attributes_include_the_speeds_that_are_known(
+    hass, api, ac_snapshot, entity_registry
+):
+    coordinator = await setup(hass, make_entry(hass))
+    named, unnamed = ac_snapshot.clients
+    named_id = tracker_id(entity_registry, named.mac)
+    unnamed_id = tracker_id(entity_registry, unnamed.mac)
+    assert "upload_kilobytes_per_second" not in hass.states.get(named_id).attributes
+    assert "download_kilobytes_per_second" not in hass.states.get(named_id).attributes
+
+    fast = replace(named, upload_kilobytes_per_second=12.0, download_kilobytes_per_second=340.0)
+    half = replace(unnamed, upload_kilobytes_per_second=0.0)
+    coordinator.async_set_updated_data(replace(ac_snapshot, clients=(fast, half)))
+    await hass.async_block_till_done()
+    attributes = hass.states.get(named_id).attributes
+    assert attributes["upload_kilobytes_per_second"] == 12.0
+    assert attributes["download_kilobytes_per_second"] == 340.0
+    attributes = hass.states.get(unnamed_id).attributes
+    assert attributes["upload_kilobytes_per_second"] == 0.0
+    assert "download_kilobytes_per_second" not in attributes

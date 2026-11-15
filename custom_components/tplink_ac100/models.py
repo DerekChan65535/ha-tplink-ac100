@@ -71,7 +71,10 @@ class ClientRadio:
 
 @dataclass(frozen=True, slots=True)
 class Client:
-    """A currently observed client; AP name is not a reliable AP identifier."""
+    """A currently observed client; AP name is not a reliable AP identifier.
+
+    The speeds are the controller's current rates in KB/s; None when it reports none.
+    """
 
     entry_id: str
     mac: str
@@ -81,6 +84,8 @@ class Client:
     ssid: str
     ap_name: str
     radios: tuple[ClientRadio, ...]
+    upload_kilobytes_per_second: float | None = None
+    download_kilobytes_per_second: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.2.1] - 2026-11-15
+
+### Fixed
+
+- Every client has a device again, as before 0.2.0: connected by the client's MAC address,
+  named by the client (or by its MAC address) and linked to the controller. Version 0.2.0
+  removed the client devices that were not in use, which made the device information of a
+  connected client hard to find. They are created again when the integration loads, normally
+  with their earlier device IDs. A client that is away at that moment gets its MAC address as
+  the device name until the integration loads while it is connected. Client trackers keep
+  their entity IDs and unique IDs and stay disabled by default.
+
+### Added
+
+- Wi-Fi upload speed and Wi-Fi download speed sensors (KB/s) for the controller, which add up
+  all clients, and for each AP, which add up the clients that report the AP's name. An AP's
+  sensors are unavailable while another AP has the same name, because the controller tells
+  only the name of a client's AP; rename one of them in the controller. The speeds are the
+  ones that the controller reports for each client in its Wireless Terminal Management table,
+  read with the 60-second poll. If that table cannot be read, only the speeds are unknown.
+- Client trackers show `upload_kilobytes_per_second` and `download_kilobytes_per_second`
+  attributes while the controller reports them.
+
 ## [0.2.0] - 2026-11-15
 
 ### Added

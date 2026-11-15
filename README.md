@@ -19,7 +19,7 @@ service is required.
 | --- | --- |
 | Home Assistant | Requires **2026.11.1 or newer**; development/test target: 2026.11.1. Older versions are not supported. |
 | Controller | Live-checked: **TL-AC100 hardware 5.0**, firmware **1.0.5 Build 250814 Rel.82234n** (read-only polling in native HA, one AP LED cycle). Other versions are unverified. |
-| Monitoring | Controller, AP, radio, port, interface, firmware and client state; controller and radio settings as disabled-by-default readings. |
+| Monitoring | Controller, AP, radio, port, interface, firmware and client state, with the clients' Wi-Fi speeds; controller and radio settings as disabled-by-default readings. |
 | Wireless networks (SSIDs) | Optional device per SSID; off by default because the controller returns Wi-Fi keys with the SSID list (they are dropped in memory). |
 | Controls | Optional, off by default: AP LED, AP radio, SSID enable/broadcast/isolation/IGMP, band steering, load balancing, broadcast storm suppression, multicast, controller name, Save configuration. Live-tested with restore on the hardware above; see [Controls](#controls). |
 | AP/controller reboot | Optional, disruptive control; **not tested on live hardware**. |
@@ -49,6 +49,14 @@ Native readings, not an embedded controller web panel:
   rates and byte counters, and firmware availability.
 - APs: connectivity, IP address, last restart, clients, firmware availability, and per radio
   the channel, channel load and clients.
+- Wi-Fi upload and download speed in KB/s, for the controller and for each AP. The controller
+  reports a speed for each client, not for each AP, so these are sums of the client speeds (the
+  values on its Wireless Terminal Management page). The controller sensors add up all clients.
+  An AP sensor adds up the clients that report the AP's name, because the controller names the
+  AP of a client and nothing else. It is unavailable while another AP has the same name, so give
+  each AP a unique name in the controller. A client without a reported speed adds nothing, and a
+  sensor is unknown when none of its clients reports one. Client trackers show their own speeds
+  as attributes.
 - Settings, disabled by default: 70 controller settings (roaming, band steering, load
   balancing, radio optimization, multicast, time, session limits and AP management) and 21
   configured values per AP radio (mode, channel width, channel, power level 1-10, client
@@ -59,7 +67,9 @@ Native readings, not an embedded controller web panel:
   statistics. They are disabled by default only on new installations.
 
 Polling shares the existing single management session. The core poll remains at
-60 seconds. Status, port, interface and firmware reads run every 5 minutes. Settings
+60 seconds; it also reads the controller's host table for the client speeds (one more
+request for every 10 hosts it lists), and if that table cannot be read only the speeds
+become unknown. Status, port, interface and firmware reads run every 5 minutes. Settings
 are read every 15 minutes, and **only while at least one settings entity is enabled**.
 The slower reads are staggered, with no burst to catch up after downtime. A failed
 slower read makes its readings unavailable; old values are not presented as current.
@@ -122,11 +132,11 @@ Reboot is not tested.
 
 ## Device pages
 
-Client trackers remain disabled by default and no longer create one MAC-only device
-each. On upgrade, a client device is removed only when all of these hold: its tracker
-was never enabled, the device belongs only to this entry, has only that MAC connection
-and no other entity, and has no user name, area, labels or disabled state. Its tracker
-keeps the same entity ID and unique ID. All other client devices are kept unchanged.
+Every client has a device, connected by the client's MAC address and linked to the
+controller. It is named by the client's name, or by its MAC address while the controller
+reports no name. A client that is away keeps its device and name, and a new name that the
+controller reports is applied the next time the integration loads. The client trackers
+remain disabled by default.
 
 The controller device is named by its model (`TL-AC100`), APs without a name use their
 model plus the last six MAC digits, and APs with duplicate names get those digits as a

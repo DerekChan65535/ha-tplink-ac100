@@ -60,6 +60,12 @@
       },
       "wireless_service_vlan": {
         "default": "mdi:lan"
+      },
+      "wifi_upload_speed": {
+        "default": "mdi:upload"
+      },
+      "wifi_download_speed": {
+        "default": "mdi:download"
       }
     },
     "binary_sensor": {

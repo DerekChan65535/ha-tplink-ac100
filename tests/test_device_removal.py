@@ -9,7 +9,7 @@ from pytest_homeassistant.common import MockConfigEntry
 from custom_components.tplink_ac100 import async_remove_config_entry_device
 from custom_components.tplink_ac100.api import Ac100Api
 from custom_components.tplink_ac100.const import DOMAIN
-from custom_components.tplink_ac100.models import AccessPoint, Controller, Snapshot
+from custom_components.tplink_ac100.models import AccessPoint, Client, Controller, Snapshot
 from custom_components.tplink_ac100.monitoring import ConfigurationState, MonitoringState
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
@@ -17,11 +17,14 @@ pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 AP = AccessPoint(
     "0", "Example AP", "Example model", "02:00:00:00:00:02", "192.0.2.2", "1", True, 1, ()
 )
+CLIENT = Client(
+    "0", "02:00:00:00:00:03", "Example phone", "192.0.2.3", "", "Example wireless", "Example AP", ()
+)
 
 
 async def test_only_unreported_devices_can_be_removed(hass, device_registry):
     snapshot = Snapshot(
-        Controller("02:00:00:00:00:01", "TL-AC100", "5.0", "1", {}, 1.0, 1), (AP,), ()
+        Controller("02:00:00:00:00:01", "TL-AC100", "5.0", "1", {}, 1.0, 1), (AP,), (CLIENT,)
     )
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -49,7 +52,16 @@ async def test_only_unreported_devices_can_be_removed(hass, device_registry):
         identifiers={(DOMAIN, AP.mac)},
         connections={(dr.CONNECTION_NETWORK_MAC, AP.mac)},
     )
+    reported_client = device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id, connections={(dr.CONNECTION_NETWORK_MAC, CLIENT.mac)}
+    )
+    stale_client = device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        connections={(dr.CONNECTION_NETWORK_MAC, "02:00:00:00:00:0a")},
+    )
     assert await async_remove_config_entry_device(hass, entry, stale)
+    assert await async_remove_config_entry_device(hass, entry, stale_client)
     assert not await async_remove_config_entry_device(hass, entry, controller)
     assert not await async_remove_config_entry_device(hass, entry, access_point)
+    assert not await async_remove_config_entry_device(hass, entry, reported_client)
     assert await hass.config_entries.async_unload(entry.entry_id)

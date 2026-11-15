@@ -12,6 +12,7 @@ import re
 import unicodedata
 from asyncio import sleep
 from collections.abc import Awaitable, Mapping
+from dataclasses import replace
 from time import monotonic
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
@@ -261,6 +262,31 @@ def _parse_client(row: dict[str, Any]) -> Client:
             )
             for radio in row.get("rf_entry", [])
         ),
+    )
+
+
+def _host_speeds(row: dict[str, Any]) -> tuple[float | None, float | None]:
+    """The upload and download speed of a host row in KB/s; hosts that left show ---."""
+    return _rate(row.get("up_speed")), _rate(row.get("down_speed"))
+
+
+def _with_speeds(client: Client, rows: list[dict[str, Any]]) -> Client:
+    """Add the speeds from the client's rows of the host table.
+
+    A MAC can be listed more than once. The row used is one that has a speed: the one for the
+    client's SSID and AP if there is one, else the first.
+    """
+    numeric = [row for row in rows if _host_speeds(row) != (None, None)]
+    here = [
+        row
+        for row in numeric
+        if (row.get("ssid"), row.get("ap_name")) == (client.ssid, client.ap_name)
+    ]
+    if not (chosen := here or numeric):
+        return client
+    upload, download = _host_speeds(chosen[0])
+    return replace(
+        client, upload_kilobytes_per_second=upload, download_kilobytes_per_second=download
     )
 
 
@@ -680,7 +706,12 @@ class Ac100Api:
         return rows
 
     async def async_get_snapshot(self) -> Snapshot:
-        """Poll controller, APs and every client page before publishing a snapshot."""
+        """Poll controller, APs and every client page before publishing a snapshot.
+
+        The client list says who is connected. The clients' speeds come from the host table, an
+        optional read: if it is rejected, malformed or not readable with this account, the speeds
+        are unknown and the rest is kept.
+        """
         async with self._lock:
             result = await self._request(
                 {
@@ -719,6 +750,10 @@ class Ac100Api:
                 clients = {_mac(row.get("mac")): _parse_client(row) for row in client_rows}
             except KeyError, TypeError, AttributeError:
                 raise Ac100ProtocolError("Controller returned malformed device telemetry") from None
+            hosts = await self._read_optional_hosts()
+            clients = {
+                mac: _with_speeds(client, hosts.get(mac, [])) for mac, client in clients.items()
+            }
             _LOGGER.debug(
                 "Controller snapshot received (aps=%s, clients=%s)", len(aps), len(clients)
             )
@@ -734,6 +769,40 @@ class Ac100Api:
             if self._stok is None:
                 raise  # a failed sign-in, not a problem with this source
             return None
+
+    async def _read_hosts(self) -> dict[str, list[dict[str, Any]]]:
+        """Read the Wireless Terminal Management table and group its rows by MAC.
+
+        It also lists hosts that have left, so it says nothing about who is connected. A row
+        without a valid MAC makes the whole table unusable.
+        """
+        rows = await self._table(
+            "host_management",
+            "host_info",
+            [{"group_id": ["-1"]}],
+            max_rows=_MAX_OPTIONAL_ROWS,
+        )
+        hosts: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            hosts.setdefault(_mac(row.get("mac")), []).append(row)
+        return hosts
+
+    async def _read_optional_hosts(self) -> dict[str, list[dict[str, Any]]]:
+        """The host table's rows by MAC, or none if it is garbled or this account may not read it.
+
+        The client list was just read, so an authorization error here is about this table, not
+        about the credentials. Connection and session errors propagate.
+        """
+        try:
+            hosts = await self._optional(self._read_hosts())
+        except Ac100SessionBusyError:
+            raise
+        except Ac100AuthError:
+            hosts = None
+        if hosts is None:
+            _LOGGER.debug("Controller client speeds are unavailable")
+            return {}
+        return hosts
 
     async def _get_sections(
         self, wanted: Mapping[str, tuple[str, ...]]

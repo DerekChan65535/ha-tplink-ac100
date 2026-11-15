@@ -449,6 +449,12 @@
       },
       "wireless_service_vlan": {
         "name": "Default VLAN"
+      },
+      "wifi_upload_speed": {
+        "name": "Wi-Fi upload speed"
+      },
+      "wifi_download_speed": {
+        "name": "Wi-Fi download speed"
       }
     },
     "binary_sensor": {

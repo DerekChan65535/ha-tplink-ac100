@@ -89,7 +89,41 @@ def snapshot_responses():
             "aps.json",
             "clients.json",
             "clients_page2.json",
+            "hosts.json",
+            "hosts_page2.json",
         )
+    ]
+
+
+def host_rows():
+    """The fixture's host table as wire rows, in table order."""
+    return [
+        next(iter(wrapper.values()))
+        for name in ("hosts.json", "hosts_page2.json")
+        for wrapper in load(name)["host_management"]["host_info"]
+    ]
+
+
+def host_responses(rows, count=None):
+    """Answer the host table's page requests from wire rows, ten rows to a page.
+
+    The controller's own count can be made to disagree with the rows.
+    """
+    count = len(rows) if count is None else count
+    return [
+        Response(
+            {
+                "error_code": 0,
+                "host_management": {
+                    "count": {"host_info": count},
+                    "host_info": [
+                        {f"host_info_{start + index}": row}
+                        for index, row in enumerate(rows[start : start + 10])
+                    ],
+                },
+            }
+        )
+        for start in range(0, max(len(rows), 1), 10)
     ]
 
 
@@ -333,9 +367,262 @@ async def test_snapshot_reads_every_page_and_decodes_once():
     requests = [call.kwargs["json"] for call in session.post.call_args_list[2:]]
     assert all(request["method"] == "get" for request in requests)
     assert all("apmng_set" not in request for request in requests)
-    assert requests[-2]["apmng_client"]["para"] == {"start": 0, "end": 9}
-    assert requests[-1]["apmng_client"]["para"] == {"start": 10, "end": 19}
+    pages = [request["apmng_client"]["para"] for request in requests if "apmng_client" in request]
+    assert pages == [{"start": 0, "end": 9}, {"start": 10, "end": 19}]
     session.close.assert_not_called()
+
+
+def speeds_of(snapshot):
+    """Each client's (upload, download) speeds by the last byte of its MAC."""
+    return {
+        client.mac[-2:]: (client.upload_kilobytes_per_second, client.download_kilobytes_per_second)
+        for client in snapshot.clients
+    }
+
+
+def host(*, ssid="Example WiFi 1", ap="Example AP 1", up="1", down="1", mac="02-00-00-00-00-07"):
+    """A host row; by default the one the fixtures list for the first client."""
+    row = host_rows()[0]
+    return {**row, "mac": mac, "ssid": ssid, "ap_name": ap, "up_speed": up, "down_speed": down}
+
+
+async def snapshot_with_hosts(*responses):
+    """Poll with the given answers to the host table's page requests."""
+    api, session = make_api(*snapshot_responses()[:5], *responses)
+    api._stok = "synthetic-session"
+    return await api.async_get_snapshot(), session
+
+
+def host_requests(session):
+    return [
+        call for call in session.post.call_args_list if "host_management" in call.kwargs["json"]
+    ]
+
+
+async def test_clients_get_their_speeds_from_the_host_table_only_if_they_are_listed():
+    snapshot, _ = await snapshot_with_hosts(*snapshot_responses()[5:])
+    assert speeds_of(snapshot) == {
+        "07": (1.0, 1.0),
+        "08": (6.0, 67.0),
+        "09": (1.0, 1.0),
+        "0a": (12.0, 40.0),
+        "0b": (1.0, 1.0),
+        "0c": (3.0, 9.0),
+        "0d": (1.0, 1.0),
+        "0e": (None, None),  # listed, but with the placeholders of a host that has left
+        "0f": (2.0, 5.0),
+        "10": (1.0, 1.0),
+        "11": (4.0, 20.0),
+        "12": (1.0, 1.0),
+        "13": (1.0, 1.0),  # two rows: a stale one for another AP, then the current one
+        "14": (5.0, 3.0),
+    }
+    # The table also lists a host that has left; only the client list says who is connected.
+    assert "02:00:00:00:00:30" not in {client.mac for client in snapshot.clients}
+
+
+async def test_the_poll_adds_exactly_the_host_table_pages():
+    api, session = make_api(*snapshot_responses())
+    api._stok = "synthetic-session"
+    await api.async_get_snapshot()
+    bodies = [call.kwargs["json"] for call in session.post.call_args_list]
+    assert [sorted(set(body) - {"method"}) for body in bodies] == [
+        ["firmware", "system"],
+        ["interface"],
+        ["apmng_status"],
+        ["apmng_client"],
+        ["apmng_client"],
+        ["host_management"],
+        ["host_management"],
+    ]
+    assert all(body["method"] == "get" for body in bodies)
+    assert bodies[-2:] == [
+        {
+            "method": "get",
+            "host_management": {
+                "table": "host_info",
+                "filter": [{"group_id": ["-1"]}],
+                "para": {"start": start, "end": start + 9},
+            },
+        }
+        for start in (0, 10)
+    ]
+
+
+ELSEWHERE = {"ssid": "Example WiFi 2", "ap": "Example AP 2"}
+SAME_SSID = {"ssid": "Example WiFi 1", "ap": "Example AP 2"}
+SAME_AP = {"ssid": "Example WiFi 2", "ap": "Example AP 1"}
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        pytest.param([host(up="5", down="6")], (5.0, 6.0), id="one row"),
+        pytest.param([host(up="0", down="0")], (0.0, 0.0), id="zero is a speed"),
+        pytest.param(
+            [host(**ELSEWHERE, up="5", down="6"), host(up="7", down="8")],
+            (7.0, 8.0),
+            id="the row for the client's SSID and AP wins",
+        ),
+        pytest.param(
+            [host(up="5", down="6"), host(up="7", down="8")],
+            (5.0, 6.0),
+            id="the first of two matching rows",
+        ),
+        pytest.param(
+            [host(**ELSEWHERE, up="5", down="6"), host(**ELSEWHERE, up="7", down="8")],
+            (5.0, 6.0),
+            id="no row matches: the first",
+        ),
+        pytest.param(
+            [host(**SAME_SSID, up="5", down="6"), host(**SAME_AP, up="7", down="8")],
+            (5.0, 6.0),
+            id="a match needs the SSID and the AP",
+        ),
+        pytest.param(
+            [host(up="---", down="---"), host(**ELSEWHERE, up="7", down="8")],
+            (7.0, 8.0),
+            id="a matching row without speeds is passed over",
+        ),
+        pytest.param(
+            [host(**ELSEWHERE, up="---", down="---"), host(up="7", down="8")],
+            (7.0, 8.0),
+            id="a stale row first",
+        ),
+        pytest.param(
+            [host(up="---", down="---"), host(**ELSEWHERE, up="---", down="---")],
+            (None, None),
+            id="no row has a speed",
+        ),
+        pytest.param([host(up="5", down="---")], (5.0, None), id="no download speed"),
+        pytest.param([host(up="---", down="6")], (None, 6.0), id="no upload speed"),
+    ],
+)
+async def test_a_client_uses_the_host_row_that_fits_its_ssid_and_ap(rows, expected):
+    snapshot, _ = await snapshot_with_hosts(*host_responses(rows))
+    assert speeds_of(snapshot)["07"] == expected
+    assert all(speeds == (None, None) for mac, speeds in speeds_of(snapshot).items() if mac != "07")
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("152", 152.0),
+        ("2.5", 2.5),
+        *((raw, None) for raw in ("---", "", "abc", "-3", "nan", None, [], True)),
+    ],
+)
+async def test_a_speed_is_a_non_negative_number_and_anything_else_is_unknown(raw, expected):
+    snapshot, _ = await snapshot_with_hosts(*host_responses([host(up=raw, down=raw)]))
+    assert speeds_of(snapshot)["07"] == (expected, expected)
+
+
+BROKEN_HOST_TABLES = {
+    "rejected": lambda: [Response({"error_code": -40210})],
+    "not JSON": lambda: [Response(text="not json")],
+    "no table": lambda: [Response({"error_code": 0})],
+    "table that is not a list": lambda: [
+        Response({"error_code": 0, "host_management": {"count": {"host_info": 1}, "host_info": 1}})
+    ],
+    "no count": lambda: [
+        Response({"error_code": 0, "host_management": {"count": {}, "host_info": []}})
+    ],
+    "count that is not a number": lambda: [
+        Response(
+            {"error_code": 0, "host_management": {"count": {"host_info": "x"}, "host_info": []}}
+        )
+    ],
+    "huge count": lambda: host_responses(host_rows(), count=10**9),
+    "short first page": lambda: host_responses(host_rows()[:3], count=16),
+    "short last page": lambda: host_responses(host_rows()[:12], count=16),
+    "row that is not an object": lambda: host_responses([*host_rows()[:4], "unexpected"]),
+    "row without a MAC": lambda: host_responses(
+        [*host_rows()[:4], {key: value for key, value in host_rows()[4].items() if key != "mac"}]
+    ),
+    "row with an invalid MAC": lambda: host_responses([*host_rows()[:4], host(mac="not-a-mac")]),
+}
+
+
+@pytest.mark.parametrize("broken", BROKEN_HOST_TABLES)
+async def test_an_unreadable_host_table_leaves_the_speeds_unknown_and_nothing_else(broken, caplog):
+    caplog.set_level(logging.DEBUG, logger="custom_components.tplink_ac100.api")
+    baseline, _ = await snapshot_with_hosts(*host_responses([]))
+    caplog.clear()
+    snapshot, _ = await snapshot_with_hosts(*BROKEN_HOST_TABLES[broken]())
+    assert snapshot == baseline
+    assert set(speeds_of(snapshot).values()) == {(None, None)}
+    assert [record.getMessage() for record in caplog.records] == [
+        "Controller client speeds are unavailable",
+        "Controller snapshot received (aps=6, clients=14)",
+    ]
+
+
+async def test_a_bad_later_page_discards_the_rows_of_the_earlier_pages():
+    snapshot, session = await snapshot_with_hosts(*host_responses(host_rows()[:12], count=16))
+    assert set(speeds_of(snapshot).values()) == {(None, None)}
+    assert len(host_requests(session)) == 2
+
+
+async def test_a_host_table_over_the_row_limit_is_refused_after_its_first_page():
+    def table(size):
+        rows = [host(up="5", down="6")]
+        rows += [host(mac=f"02-00-00-01-{n // 256:02X}-{n % 256:02X}") for n in range(size - 1)]
+        return host_responses(rows)
+
+    snapshot, session = await snapshot_with_hosts(*table(257))
+    assert speeds_of(snapshot)["07"] == (None, None)
+    assert len(host_requests(session)) == 1
+    snapshot, _ = await snapshot_with_hosts(*table(256))
+    assert speeds_of(snapshot)["07"] == (5.0, 6.0)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        Response({"error_code": -40100}, status=401),
+        Response({"error_code": -57705}, status=401),
+        Response(status=403),
+    ],
+)
+async def test_a_host_table_this_account_may_not_read_is_not_a_credentials_failure(answer, caplog):
+    """The client list was just read, so a refusal here is about this table only."""
+    caplog.set_level(logging.DEBUG, logger="custom_components.tplink_ac100.api")
+    baseline, _ = await snapshot_with_hosts(*host_responses([]))
+    snapshot, session = await snapshot_with_hosts(answer)
+    assert snapshot == baseline
+    assert len(host_requests(session)) == 1
+    assert "Controller client speeds are unavailable" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("answers", "error"),
+    [
+        ([Response(error=aiohttp.ClientConnectionError("private-url"))], Ac100ConnectionError),
+        ([Response({"error_code": -57704}, status=401)], Ac100SessionBusyError),
+        ([Response({"error_code": -40404}, status=401)], Ac100AccountLockedError),
+        (
+            [
+                Response({"error_code": -40401, "data": {"code": -40401}}, status=401),
+                metadata(),
+                logged_in(),
+                Response({"error_code": -40401, "data": {"code": -40401}}, status=401),
+            ],
+            Ac100SessionExpiredError,
+        ),
+    ],
+)
+async def test_connection_and_session_failures_in_the_host_table_still_fail_the_poll(
+    answers, error
+):
+    with pytest.raises(error) as exc:
+        await snapshot_with_hosts(*answers)
+    assert "private-url" not in str(exc.value)
+
+
+async def test_a_failed_sign_in_during_the_host_table_is_not_an_unreadable_table():
+    expired = Response({"error_code": -40401, "data": {"code": -40401}}, status=401)
+    with pytest.raises(Ac100ProtocolError):
+        await snapshot_with_hosts(expired, metadata(), Response(text="not json"))
 
 
 async def test_identity_is_rechecked_even_without_a_new_login():
@@ -657,7 +944,7 @@ async def test_missing_table_page_fails_snapshot_instead_of_disconnect_all():
     responses = snapshot_responses()
     page2 = copy.deepcopy(load("clients_page2.json"))
     page2["apmng_client"]["client_list"] = []
-    responses[-1] = Response(page2)
+    responses[4] = Response(page2)
     api, _ = make_api(*responses)
     api._stok = "synthetic-session"
     with pytest.raises(Ac100ProtocolError, match="incomplete table"):
@@ -686,8 +973,18 @@ async def test_debug_logs_cover_operations_without_sensitive_data(caplog):
         mac="02-AB-CD-44-55-66",
         ip="198.51.100.112",
     )
+    hosts = load("hosts.json")
+    host = next(iter(hosts["host_management"]["host_info"][0].values()))
+    host.update(
+        hostname="private-host-name",
+        ssid="private-ssid",
+        ap_name="private-ap-name",
+        mac="02-AB-CD-44-55-66",
+        ip="198.51.100.112",
+    )
     responses = snapshot_responses()
     responses[1:4] = [Response(identity), Response(aps), Response(clients)]
+    responses[5] = Response(hosts)
     _, session = make_api(
         metadata(),
         Response({"error_code": 0, "stok": "private-auth-token"}),
@@ -697,7 +994,8 @@ async def test_debug_logs_cover_operations_without_sensitive_data(caplog):
     )
     api = Ac100Api(session, "private-host.example", "private-username", "private-password")
     await api.async_login()
-    await api.async_get_snapshot()
+    snapshot = await api.async_get_snapshot()
+    assert snapshot.clients[0].download_kilobytes_per_second == 1.0
     await api.async_set_ap_led("private-ap-id", True)
     await api.async_reboot_ap("private-ap-id")
     await api.async_reboot_controller()
@@ -712,6 +1010,7 @@ async def test_debug_logs_cover_operations_without_sensitive_data(caplog):
         "private-ap-id",
         "private-ap-name",
         "private-client-name",
+        "private-host-name",
         "private-ssid",
         "02-AB-CD-99-88-77",
         "02-AB-CD-11-22-33",
