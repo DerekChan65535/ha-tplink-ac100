@@ -861,6 +861,7 @@ def configuration_sections(**raw):
         ("ntp_secondary_server", "", None),
         ("device_alias", "Example Controller", "Example Controller"),
         ("device_alias", "bad\nalias", None),
+        ("device_alias", "Office\u3000AP", "Office\u3000AP"),
         ("web_session_timeout", "6", 6),
         ("login_max_attempts", "0", 0),
         ("ap_telnet_enabled", "off", False),

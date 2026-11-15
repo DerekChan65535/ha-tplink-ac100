@@ -681,6 +681,9 @@
     },
     "save_in_progress": {
       "message": "The configuration is already being saved. Wait for it to finish."
+    },
+    "control_rejected": {
+      "message": "The controller rejected the action. The account may not be allowed to make this change. If the password was changed, Home Assistant asks for it after the next update."
     }
   }
 }

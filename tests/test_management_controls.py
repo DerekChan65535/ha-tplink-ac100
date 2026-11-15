@@ -908,12 +908,8 @@ async def test_radios_and_aps_first_seen_later_get_one_switch_each(
 
 
 def test_every_control_has_english_names_states_and_exception_texts():
-    """Reads strings.json, plus the fragment that has not been merged into it yet (if any)."""
     root = Path(__file__).parents[1]
     strings = json.loads((root / "custom_components" / "tplink_ac100" / "strings.json").read_text())
-    fragment = root / "research" / "strings_controls-global.json"
-    if fragment.exists():
-        strings = merged(strings, json.loads(fragment.read_text()))
     entities = strings["entity"]
     for key in SWITCHES:
         assert entities["switch"][key]["name"]
@@ -929,12 +925,3 @@ def test_every_control_has_english_names_states_and_exception_texts():
     for key in ("invalid_value", "save_outcome_unknown", "control_unavailable", "control_failed"):
         assert strings["exceptions"][key]["message"]
     assert "{reason}" in strings["exceptions"]["invalid_value"]["message"]
-
-
-def merged(base, extra):
-    result = dict(base)
-    for key, value in extra.items():
-        if key == "icons":
-            continue
-        result[key] = merged(base[key], value) if isinstance(value, dict) and key in base else value
-    return result

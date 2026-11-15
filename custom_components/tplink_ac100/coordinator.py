@@ -187,15 +187,18 @@ class Ac100Coordinator(DataUpdateCoordinator[Snapshot]):
                 translation_domain=DOMAIN, translation_key="account_locked"
             ) from err
         except Ac100SessionExpiredError as err:
+            # The outcome is unknown: read everything again on the next update.
+            self._refresh_all = True
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="session_expired"
             ) from err
         except Ac100AuthError as err:
-            self.entry.async_start_reauth(self.hass)
+            # Polls still work, so this is about the action; wrong credentials surface there.
             raise HomeAssistantError(
-                translation_domain=DOMAIN, translation_key="invalid_auth"
+                translation_domain=DOMAIN, translation_key="control_rejected"
             ) from err
         except Ac100Error as err:
+            self._refresh_all = True
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="control_failed"
             ) from err

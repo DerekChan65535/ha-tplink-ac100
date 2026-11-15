@@ -97,8 +97,9 @@ write is safe on any firmware. Initial LED checks exposed asymmetric values: rea
 `1` means on, `2` off, and `0` unknown; writes use `1` for on and `0` for off. The original
 on state is now handled. After the fix, one AP was switched off and on through the native
 HA switch, with readback, and its original state was restored. Other AP models and
-firmware are untested. AP/controller reboot has not been tested on live hardware. SSID
-changes are not included initially.
+firmware are untested. AP/controller reboot has not been tested on live hardware. The
+other controls (AP radio, SSID switches, controller settings and name, Save configuration)
+were live-tested once each on one controller with restore; see README.md for the scope.
 
 Some APs link LED state with Wi-Fi. Before **each** LED write, the integration must
 confirm `led_wifi_sync` is explicitly **off**; on, missing, or unknown blocks the write.

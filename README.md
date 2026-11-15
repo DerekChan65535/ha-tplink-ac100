@@ -22,7 +22,7 @@ service is required.
 | Controller | Live-checked: **TL-AC100 hardware 5.0**, firmware **1.0.5 Build 250814 Rel.82234n** (read-only polling in native HA, one AP LED cycle). Other versions are unverified. |
 | Monitoring | Controller, AP, radio, port, interface, firmware and client state; controller and radio settings as disabled-by-default readings. |
 | Wireless networks (SSIDs) | Optional device per SSID; off by default because the controller returns Wi-Fi keys with the SSID list (they are dropped in memory). |
-| Controls | Optional, off by default: AP LED, AP radio, SSID enable/broadcast/isolation/IGMP, band steering, load balancing, broadcast storm suppression, multicast, controller name, Save configuration. Each write was live-tested with restore on the hardware above. |
+| Controls | Optional, off by default: AP LED, AP radio, SSID enable/broadcast/isolation/IGMP, band steering, load balancing, broadcast storm suppression, multicast, controller name, Save configuration. Live-tested with restore on the hardware above; see [Controls](#controls). |
 | AP/controller reboot | Optional, disruptive control; **not tested on live hardware**. |
 | Not included | Firmware installation, factory reset, configuration/certificate files, accounts, portals and authentication lists, network interfaces, DHCP and routing changes, wireless network mode. See [Not included](#not-included). |
 | Debug level logging | Native diagnostic switch; off by default, independent of device management. |
@@ -100,15 +100,26 @@ Except for the AP LED switches they are created disabled; enable only the ones y
 | Save configuration | Controller | Stores the running configuration so it survives a controller restart. |
 | Reboot | One AP or the controller | Interrupts service; **not tested on live hardware**. |
 
-Each change sends the controller's own web page form once, built from a fresh read, and is
-never repeated automatically (a timeout does not prove that a write failed). Changes stay in
-the controller's running configuration, as in the web UI, until **Save configuration** is
-pressed. Saving also stores changes made outside Home Assistant, so check the **Configuration
-not saved** sensor first. Nothing is saved automatically.
+Each change is sent once and is never repeated automatically (a timeout does not prove that
+a write failed). Controller settings send their web page's complete form, built from a fresh
+read. SSID, radio and name changes send only the changed field. For SSID broadcast and client
+isolation this differs from the web UI, which sends the whole SSID row including its key; the
+one-field update was verified on the firmware listed at the top. Setting the broadcast storm
+rate also switches the rate type to a custom rate, as in the web UI. The multicast settings do
+not repeat the web UI's warning about APs without multicast optimization.
 
-Every write listed above except reboot was live-tested on the hardware listed at the top:
-applied, read back, restored to the original value and compared with the original
-configuration (no other field changed). The SSID tests used a designated test SSID.
+Changes stay in the controller's running configuration, as in the web UI, until **Save
+configuration** is pressed. Saving also stores changes made outside Home Assistant, so check
+the **Configuration not saved** sensor first. Nothing is saved automatically.
+
+Live tests on the hardware listed at the top (each applied, read back, restored and compared
+with the original configuration, with no other field changed): AP radio on/off; SSID enabled,
+broadcast, client isolation, IGMP snooping and querier on a designated test SSID; band
+steering on/off, 5 GHz threshold and maximum failures; load balancing on/off and RSSI
+threshold; broadcast storm suppression on/off; multicast snooping, unknown multicast and
+2.4 GHz rate; controller name; Save configuration. The other thresholds, the storm rate and
+the 5 GHz multicast rate use the same tested forms but were not changed individually.
+Reboot is not tested.
 
 ## Device pages
 
@@ -208,7 +219,7 @@ long pause). The integration notices the rejected token, signs in again once, an
 same read. This is normal and needs no action. Turn on the **Debug logging** switch to see the
 short `session expired; reauthenticating once` log lines.
 
-A management action (LED, reboot) that meets an expired session is **not retried
+A management action that meets an expired session is **not retried
 automatically**: the integration cannot prove that the rejected command had no effect, and an
 LED command must pass its safety check again. Check the current state and run the action again.
 If a renewed session is rejected as well, that update fails and the next poll tries again; it is

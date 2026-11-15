@@ -105,7 +105,7 @@ class WirelessServiceFlag:
 # ``enable`` and the IGMP switches take on/off; ``ssidbrd`` (SSID broadcast, the inverse of the
 # page's "hide") and ``isolate`` take 1/0. The web UI's enable/disable buttons update ``enable``
 # and the IGMP switches alone, and a live test showed that a one-field update of the others is
-# applied too (research/LIVE_WRITE_VALIDATION.md).
+# applied too.
 WIRELESS_SERVICE_FLAGS: tuple[WirelessServiceFlag, ...] = (
     WirelessServiceFlag("enabled", "enable", "on", "off"),
     WirelessServiceFlag("broadcast", "ssidbrd", "1", "0"),

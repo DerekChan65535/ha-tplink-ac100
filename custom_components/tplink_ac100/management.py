@@ -6,7 +6,7 @@ the page validates it. The form is built from a fresh read of its section, so a 
 no field except the one it was asked to change (and the field that page ties to it).
 
 The module does no I/O and does not depend on Home Assistant. api.py sends the requests. Each
-rule cites the page it comes from, under research/webui/pages (L is the line number).
+rule names the controller web page it comes from (L is a line in that page's source).
 """
 
 import re

@@ -31,8 +31,13 @@
 - Management controls (management option, entities disabled by default): AP radio on/off,
   SSID enabled/broadcast/client isolation/IGMP snooping/IGMP querier, band steering and load
   balancing with their thresholds, broadcast storm suppression and rate, multicast settings,
-  controller name and Save configuration. Each write sends the web page's own form once,
-  built from a fresh read, and was live-tested with restore on TL-AC100 hardware 5.0.
+  controller name and Save configuration. Each write is sent once and never replayed;
+  settings use the web page's complete form from a fresh read, SSID/radio/name changes send
+  only the changed field. Live-tested with restore on TL-AC100 hardware 5.0 (see README).
+- Management actions rejected by the controller no longer start a password reauthentication.
+  After an action with an unknown outcome, the next update reads all optional data again.
+- SSID names with emoji or special spaces, and controller names with ideographic spaces,
+  are shown instead of being treated as invalid.
 
 ### Changed
 

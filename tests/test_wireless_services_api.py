@@ -23,7 +23,6 @@ from pytest_homeassistant.common import MockConfigEntry
 from custom_components.tplink_ac100.api import (
     Ac100AccountLockedError,
     Ac100Api,
-    Ac100AuthError,
     Ac100ConnectionError,
     Ac100Error,
     Ac100ProtocolError,
@@ -535,6 +534,17 @@ UNUSABLE = [
 ]
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["Family \U0001f468\u200d\U0001f469\u200d\U0001f467", "Caf\u00e9\u00a0Guest", "A\u3000B"],
+)
+async def test_names_with_emoji_joiners_and_special_spaces_are_kept(name):
+    api, _, controller = make_api()
+    controller.rows[1]["ssid"] = name
+    state = await read(api)
+    assert [item.name for item in state.wireless_services][1] == name
+
+
 @pytest.mark.parametrize("change", UNUSABLE, ids=lambda change: change.__name__)
 async def test_an_unusable_table_leaves_the_services_unknown_and_the_other_sources_intact(change):
     api, _, controller = make_api()
@@ -550,7 +560,6 @@ async def test_an_unusable_table_leaves_the_services_unknown_and_the_other_sourc
     [
         (Response(error=aiohttp.ClientConnectionError("private-url")), Ac100ConnectionError),
         (Response({"error_code": 0}, status=500), Ac100ConnectionError),
-        (Response({"error_code": -40100}, status=401), Ac100AuthError),
         (Response({"error_code": -57704}, status=401), Ac100SessionBusyError),
         (Response({"error_code": -40404}, status=401), Ac100AccountLockedError),
     ],
@@ -562,6 +571,15 @@ async def test_connection_and_authentication_failures_propagate(response, error)
         await read(api)
     assert "private-url" not in str(exc.value)
     assert controller.bodies[-1] == SSID_READ
+
+
+async def test_a_table_this_account_may_not_read_only_hides_the_services():
+    api, _, controller = make_api()
+    controller.script["ssid"] = [Response({"error_code": -40100}, status=401)]
+    state = await read(api)
+    assert state.wireless_services is None
+    assert state.values == {"configuration_not_saved": True}
+    assert state.ports and state.interfaces
 
 
 async def test_an_expired_session_is_renewed_once_for_the_table_read():

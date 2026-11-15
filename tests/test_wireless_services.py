@@ -612,9 +612,10 @@ async def test_reported_networks_cannot_be_removed_but_stale_ones_can(hass, star
     assert await async_remove_config_entry_device(hass, entry, devices["3"])
     await publish(hass, coordinator, (HOME, replace(GUEST, name="Renamed")))
     assert not await async_remove_config_entry_device(hass, entry, devices["2"])
-    for lost in (None, ()):
-        await publish(hass, coordinator, lost)
-        assert await async_remove_config_entry_device(hass, entry, devices["1"])
+    await publish(hass, coordinator, None)  # the read failed: the network may still exist
+    assert not await async_remove_config_entry_device(hass, entry, devices["1"])
+    await publish(hass, coordinator, ())
+    assert await async_remove_config_entry_device(hass, entry, devices["1"])
     assert not await async_remove_config_entry_device(hass, entry, controller)
 
 
@@ -658,27 +659,11 @@ async def test_diagnostics_report_the_opt_in_being_off(hass, start):
 # Translations
 
 
-def merged(base, extra):
-    result = dict(base)
-    for key, value in extra.items():
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = merged(result[key], value)
-        else:
-            result[key] = value
-    return result
-
-
 def strings_and_icons():
-    """The shipped files, plus the research fragment while the parent has not merged it."""
-    root = Path(__file__).parents[1]
-    component = root / "custom_components" / "tplink_ac100"
+    """The shipped strings and icons."""
+    component = Path(__file__).parents[1] / "custom_components" / "tplink_ac100"
     strings = json.loads((component / "strings.json").read_text())
     icons = json.loads((component / "icons.json").read_text())
-    fragment = root / "research" / "strings_ssid-services.json"
-    if fragment.exists():
-        extra = json.loads(fragment.read_text())
-        icons = merged(icons, extra.pop("icons", {}))
-        strings = merged(strings, extra)
     return strings, icons
 
 

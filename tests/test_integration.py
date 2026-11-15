@@ -391,3 +391,26 @@ async def test_control_session_errors_have_specific_messages_and_no_reauth(
             await coordinator.async_control(action)
     assert error.value.translation_key == translation_key
     reauth.assert_not_called()
+
+
+async def test_rejected_action_does_not_start_reauthentication(hass, ac_entry, ac_api):
+    hass.config_entries.async_update_entry(ac_entry, options={CONF_ENABLE_CONTROL: True})
+    coordinator = await setup(hass, ac_entry)
+    action = AsyncMock(side_effect=Ac100AuthError("Not permitted"))
+    with patch.object(type(ac_entry), "async_start_reauth") as reauth:
+        with pytest.raises(HomeAssistantError) as error:
+            await coordinator.async_control(action)
+    assert error.value.translation_key == "control_rejected"
+    reauth.assert_not_called()
+
+
+async def test_unknown_action_outcome_rereads_everything_on_the_next_update(hass, ac_entry, ac_api):
+    hass.config_entries.async_update_entry(ac_entry, options={CONF_ENABLE_CONTROL: True})
+    coordinator = await setup(hass, ac_entry)
+    monitoring_reads = ac_api.async_get_monitoring.await_count
+    action = AsyncMock(side_effect=Ac100ConnectionError("Timed out"))
+    with pytest.raises(HomeAssistantError):
+        await coordinator.async_control(action)
+    assert ac_api.async_get_monitoring.await_count == monitoring_reads
+    await coordinator.async_refresh()
+    assert ac_api.async_get_monitoring.await_count == monitoring_reads + 1

@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import re
+import unicodedata
 from asyncio import sleep
 from collections.abc import Awaitable, Mapping
 from time import monotonic
@@ -296,18 +297,27 @@ _STATUS_SECTIONS = {
     "administrator": ("auth_status",),
 }
 _FIRMWARE_SECTIONS = {"cloud_config": ("new_firmware", "upgrade_info")}
+_INVISIBLE = frozenset({"Cc", "Cs", "Cn", "Zl", "Zp"})
 
 
 def _choice[T](states: Mapping[str, T], value: Any) -> T | None:
     return states.get(value) if isinstance(value, str) else None
 
 
+def _visible(text: str) -> bool:
+    """Text without control or unassigned characters or line breaks.
+
+    Names may contain ideographic spaces, emoji joiners and other format characters.
+    """
+    return all(unicodedata.category(char) not in _INVISIBLE for char in text)
+
+
 def _text(value: Any, limit: int = 64) -> str | None:
-    """A short printable string, or None."""
+    """A short visible string, or None."""
     if not isinstance(value, str):
         return None
     text = value.strip()
-    return text if 0 < len(text) <= limit and text.isprintable() else None
+    return text if 0 < len(text) <= limit and _visible(text) else None
 
 
 def _name(value: Any) -> str | None:
@@ -800,9 +810,7 @@ class Ac100Api:
                 if (table := await self._optional(read())) is not None:
                     tables[source] = table
             available.update(tables)
-            services = (
-                await self._optional(self._read_wireless_services()) if wireless_services else None
-            )
+            services = await self._read_optional_wireless_services() if wireless_services else None
             state = MonitoringState(
                 values=values,
                 available_sections=frozenset(available),
@@ -841,6 +849,20 @@ class Ac100Api:
             )
             return state
 
+    async def _read_optional_wireless_services(self) -> tuple[WirelessService, ...] | None:
+        """The SSID table, or None if it is garbled or this account may not read it.
+
+        The other monitoring reads in the same session succeeded, so an authorization error here
+        is about this table, not about the credentials.
+        """
+        try:
+            return await self._optional(self._read_wireless_services())
+        except Ac100SessionBusyError:
+            raise
+        except Ac100AuthError:
+            _LOGGER.debug("Controller wireless services are not readable with this account")
+            return None
+
     async def _read_wireless_services(self) -> tuple[WirelessService, ...]:
         """Read the SSID table and keep only the allow-listed fields of each row.
 
@@ -871,7 +893,7 @@ class Ac100Api:
                 or not isinstance(name, str)
                 or not name.strip()
                 or len(name) > 96
-                or not name.isprintable()
+                or not _visible(name)
             ):
                 raise Ac100ProtocolError("Invalid wireless service data")
             if (service_id := str(number)) in services:

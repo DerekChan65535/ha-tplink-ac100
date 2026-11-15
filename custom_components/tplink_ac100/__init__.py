@@ -7,7 +7,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import Ac100Api
-from .const import DOMAIN, PLATFORMS
+from .const import CONF_MONITOR_WIRELESS_SERVICES, DOMAIN, PLATFORMS
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
 from .device_info import ap_device_info, controller_device_info
 from .wireless_service import wireless_service_device_key
@@ -54,13 +54,25 @@ async def async_remove_config_entry_device(
 ) -> bool:
     """Allow deleting only devices that the controller no longer reports.
 
-    A wireless network counts as reported while the latest SSID read lists it.
+    A wireless network counts as reported while the latest SSID read lists it, and also while
+    that read failed, since its state is then unknown.
     """
     if entry.state is not ConfigEntryState.LOADED:
         return False
     data = entry.runtime_data.data
     mac = data.controller.mac
     services = data.monitoring.wireless_services if data.monitoring is not None else None
+    ssid_prefix = wireless_service_device_key(mac, "")
+    if (
+        services is None
+        and entry.options.get(CONF_MONITOR_WIRELESS_SERVICES, False)
+        and any(
+            value.startswith(ssid_prefix)
+            for domain, value in device.identifiers
+            if domain == DOMAIN
+        )
+    ):
+        return False
     current = {
         mac,
         *(ap.mac for ap in data.aps),

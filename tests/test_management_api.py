@@ -37,7 +37,7 @@ FIELDS = {item.key: item for item in CONFIGURATION_FIELDS}
 EXPIRED = {"error_code": -40401, "data": {"code": -40401}}
 
 # The forms that the live write test sent and restored without changing any other field
-# (research/LIVE_WRITE_VALIDATION.md): every field of the page's form, and nothing else.
+# on the hardware: every field of the page's form, and nothing else.
 LIVE_FORMS = {
     ("apmng_band_navigation", "settings"): (
         "enable",
