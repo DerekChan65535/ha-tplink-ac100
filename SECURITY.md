@@ -12,13 +12,12 @@ An HA or firmware update may change this boundary. Consult the release notes.
 
 ## Report a vulnerability privately
 
-Use the repository's **Security → Report a vulnerability** page when private reporting
-is available:
+GitHub private vulnerability reporting is **enabled** for this repository. Use
+**Security → Report a vulnerability**:
 
 https://github.com/DerekChan65535/ha-tplink-ac100/security/advisories/new
 
-The maintainer must enable GitHub private vulnerability reporting for that route to
-accept reports. If the option is not available, open a public issue containing **only**
+If the private-reporting route is unavailable, open a public issue containing **only**
 a request for a private contact channel. Do not describe an exploit or include secrets
 in that issue. Do not publish a credential-bearing proof of concept. No response-time
 SLA is promised for this volunteer project.
@@ -50,6 +49,46 @@ Ordinary non-security bugs belong in the public issue tracker with redacted logs
   raw controller responses. The project does not need telemetry or cloud uploads to
   operate; GitHub/HACS and Python dependency downloads may use Internet access on install.
 
+## Debug logging allowlist
+
+The native **Debug level logging** diagnostic switch defaults to off and is independent
+of device management. Its state is not persisted: HA restart starts it off. It works
+while the controller is offline and does not call a device API. Enabling it saves
+current levels and changes `custom_components.tplink_ac100` **and its child loggers**
+to `DEBUG`. Disabling it restores prior non-`DEBUG` levels; any logger in this namespace
+that would remain at `DEBUG` is set to `INFO`, preventing an explicit child-logger
+level from bypassing the off state. HA's root logger and other integrations' loggers
+are not changed.
+
+Integration log fields are restricted to this allowlist:
+
+- Fixed operation/stage names and success/failure indicators.
+- Fixed error categories or exception class names, not arbitrary exception text.
+- Elapsed time and aggregate counts, without per-device/client identifiers.
+
+Do not log raw request/response bodies, authentication payloads, passwords, hashes,
+cookies, session tokens/keys, credential-bearing URLs, or device/client names, MAC/IP
+addresses, SSIDs, or arbitrary strings returned by the controller. More verbose logging
+must not bypass this rule; do not add a raw-response debug dump. This policy covers
+this integration, not every HA logger. Review all exported logs before sharing them,
+and turn debug logging off when troubleshooting is complete.
+
+## Controller session ownership
+
+The tested firmware permits only **one management session at a time**. Monitoring
+occupies that session even if optional management controls are disabled. Sign out of
+other controller management clients before configuring HA. To use the **AC web interface**,
+**disable, rather than delete, the HA entry first**. Sign out of the web interface when
+finished, then re-enable the entry.
+
+Changing the connection address through HA's Reconfigure flow does not require manual
+disabling. Reconfigure and reauthentication temporarily unload only the affected entry
+before validation; failed validation, a different controller, or cancellation automatically
+restores the original entry. Configuration validation releases its temporary login
+session. Entry unload/reload releases only that entry's own token. The integration does not use `force=1` or
+intentionally evict other administrators. A busy/session-in-use response is not an
+invalid-password response: wait for the other session to exit or expire before retrying.
+
 ## Management operations
 
 Monitoring is the default. Management is **off by default**, and reboot button entities
@@ -75,12 +114,28 @@ a change that was already applied to the controller.
 ## 中文摘要
 
 安全修复以最新稳定版为目标，旧版不承诺回移。首个稳定版前均属实验状态。
-漏洞请优先使用上面的 GitHub 私密报告入口；维护者尚未启用入口时，公开 Issue **只能请求私密联络方式**，
-不要写漏洞细节、凭据或利用步骤。本志愿项目不承诺固定响应时限。
+本仓库已启用 GitHub 私密漏洞报告，请优先使用上面的私密入口。若入口不可用，
+公开 Issue **只能请求私密联络方式**，不要写漏洞细节、凭据或利用步骤。本志愿项目不承诺固定响应时限。
 
 集成在 HA 进程内运行；HACS 收录和 CI 通过都不是安全审计。控制器应在受信管理网内，
 不要开放公网管理端口。HTTP 接口本身不加密，HA 配置项与备份可能保存密码，需控制读取权限。
 日志、诊断、抓包和 Issue 都不得含密码、cookie、会话密钥或真实客户端记录。
+
+原生 **Debug level logging** 诊断开关独立于设备管理，默认关闭且不持久化，HA 重启后关闭。
+它只调整 `custom_components.tplink_ac100` 及其子 logger：开启时保存原级别并统一设为 `DEBUG`；
+关闭时恢复原非 `DEBUG` 级别，本命名空间内仍为 `DEBUG` 的 logger 压至 `INFO`，
+避免显式子 logger 级别绕过关闭状态。控制器离线也能切换，不调用设备 API，不改变 root 或其他集成 logger。
+日志白名单仅允许固定操作/阶段、成功/失败、固定错误类别或异常类名、耗时与无标识的汇总数量；
+不得输出任意异常文本、设备返回字符串、原始请求/响应、认证数据、密码/哈希、cookie/token、
+含凭据的 URL 或设备/客户端名称、MAC/IP、SSID。禁止增加 raw debug 响应转储。
+这不是全系统日志脱敏，分享导出日志前仍需检查，排查后关闭调试开关。
+
+实测固件只允许单一管理会话，只读监控也会占用登录。添加前退出其他 AC 管理端；
+需要使用 AC 网页时，必须先在 HA **禁用条目，不是删除**，网页用完退出后再启用。
+在 HA 中通过重新配置修改连接地址不必手动先禁用；重新配置/重新认证验证前仅临时卸载本条目，
+验证失败、连接到错误设备或取消时自动恢复原条目。
+配置验证结束释放临时会话，卸载/reload 只释放自己 token，不使用 `force=1` 或踢其他管理员。
+忙碌/会话占用不等于密码错误，等待其他会话退出或超时即可重试。
 
 管理默认关闭，重启按钮默认禁用。管理接口证据及模拟测试不等于真机写入验证；
 不要用生产 Wi-Fi 试重启。SSID 修改首版不提供。写超时不要盲目重试；

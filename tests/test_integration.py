@@ -89,7 +89,8 @@ async def test_default_setup_is_read_only_and_unloads(hass, ac_entry, ac_api, en
     coordinator = await setup(hass, ac_entry)
     entities = er.async_entries_for_config_entry(entity_registry, ac_entry.entry_id)
     assert {entity.domain for entity in entities} >= {"sensor", "binary_sensor", "device_tracker"}
-    assert not any(entity.domain in {"switch", "button"} for entity in entities)
+    assert not any(entity.domain == "button" for entity in entities)
+    assert sum(entity.domain == "switch" for entity in entities) == 1
     tracker = next(entity for entity in entities if entity.domain == "device_tracker")
     assert tracker.disabled_by is er.RegistryEntryDisabler.INTEGRATION
     ac_api.async_set_ap_led.assert_not_called()
@@ -146,7 +147,11 @@ async def test_opt_in_controls_and_safe_defaults(hass, ac_entry, ac_api, entity_
     buttons = [entity for entity in entities if entity.domain == "button"]
     assert len(buttons) == 2
     assert all(entity.disabled_by is er.RegistryEntryDisabler.INTEGRATION for entity in buttons)
-    switch = next(entity for entity in entities if entity.domain == "switch")
+    switch = next(
+        entity
+        for entity in entities
+        if entity.domain == "switch" and entity.unique_id.endswith("_led")
+    )
     await hass.services.async_call(
         "switch", "turn_off", {"entity_id": switch.entity_id}, blocking=True
     )
@@ -247,3 +252,79 @@ async def test_failed_freshness_check_blocks_controller_reboot(hass, ac_entry, a
     with pytest.raises(HomeAssistantError):
         await button.async_press()
     ac_api.async_reboot_controller.assert_not_called()
+
+
+async def test_busy_session_is_retryable_not_reauthentication(hass, ac_entry, ac_api):
+    from custom_components.tplink_ac100.api import Ac100SessionBusyError
+
+    ac_api.async_get_snapshot.side_effect = Ac100SessionBusyError("Session occupied")
+    assert not await hass.config_entries.async_setup(ac_entry.entry_id)
+    assert ac_entry.state is ConfigEntryState.SETUP_RETRY
+    ac_api.async_logout.assert_awaited()
+
+
+async def test_failed_setup_releases_own_session(hass, ac_entry, ac_api, ac_snapshot):
+    ac_api.async_get_snapshot.return_value = replace(
+        ac_snapshot, controller=replace(ac_snapshot.controller, mac="02:00:00:00:ff:02")
+    )
+    assert not await hass.config_entries.async_setup(ac_entry.entry_id)
+    ac_api.async_logout.assert_awaited()
+
+
+async def test_unload_releases_own_session_after_polling_stops(hass, ac_entry, ac_api):
+    coordinator = await setup(hass, ac_entry)
+    ac_api.async_logout.assert_not_called()
+
+    async def check_shutdown():
+        assert coordinator._shutdown_requested
+
+    ac_api.async_logout.side_effect = check_shutdown
+    assert await hass.config_entries.async_unload(ac_entry.entry_id)
+    ac_api.async_logout.assert_awaited()
+
+
+async def test_unload_network_failure_does_not_keep_entry_loaded(hass, ac_entry, ac_api):
+    await setup(hass, ac_entry)
+    ac_api.async_logout.side_effect = Ac100ConnectionError("Unavailable")
+    assert await hass.config_entries.async_unload(ac_entry.entry_id)
+    assert ac_entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_stopped_coordinator_does_not_run_control(hass, ac_entry, ac_api):
+    hass.config_entries.async_update_entry(ac_entry, options={CONF_ENABLE_CONTROL: True})
+    coordinator = await setup(hass, ac_entry)
+    await coordinator.async_shutdown()
+    action = AsyncMock()
+    with pytest.raises(HomeAssistantError):
+        await coordinator.async_control(action)
+    action.assert_not_called()
+    ac_api.async_reboot_controller.assert_not_called()
+
+
+async def test_home_assistant_stop_releases_session(hass, ac_entry, ac_api):
+    from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+
+    coordinator = await setup(hass, ac_entry)
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+    assert coordinator._shutdown_requested
+    ac_api.async_logout.assert_awaited()
+
+
+async def test_cancelled_setup_releases_session(hass, ac_entry, ac_api):
+    import asyncio
+
+    entered = asyncio.Event()
+    blocked = asyncio.Event()
+
+    async def snapshot():
+        entered.set()
+        await blocked.wait()
+
+    ac_api.async_get_snapshot.side_effect = snapshot
+    task = asyncio.create_task(hass.config_entries.async_setup(ac_entry.entry_id))
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    ac_api.async_logout.assert_awaited()

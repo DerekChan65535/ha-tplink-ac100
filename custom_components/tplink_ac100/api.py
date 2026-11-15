@@ -6,6 +6,7 @@ Management calls are explicit. Polling never changes controller configuration.
 import asyncio
 import hashlib
 import json
+import logging
 import math
 import re
 from typing import Any
@@ -14,6 +15,8 @@ from urllib.parse import quote, unquote, urlsplit
 import aiohttp
 
 from .models import AccessPoint, ApRadio, Client, ClientRadio, Controller, Snapshot
+
+_LOGGER = logging.getLogger(__name__)
 
 _PAGE_SIZE = 10
 _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=15)
@@ -30,7 +33,11 @@ class Ac100Error(Exception):
 
 
 class Ac100AuthError(Ac100Error):
-    """Authentication failed or an existing administrator session blocks access."""
+    """Authentication or access to the controller was rejected."""
+
+
+class Ac100SessionBusyError(Ac100AuthError):
+    """Another administrator holds the controller's read-write session."""
 
 
 class _SessionExpiredError(Ac100AuthError):
@@ -210,7 +217,12 @@ class Ac100Api:
         self._username = username
         self._password = password
         self._stok: str | None = None
+        self._closed = False
         self._lock = asyncio.Lock()
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise Ac100Error("Controller client has been closed")
 
     async def _post(self, path: str, data: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -242,6 +254,9 @@ class Ac100Api:
             raise Ac100ProtocolError("Controller response has an invalid error code")
         details = result.get("data")
         subcode = details.get("code") if isinstance(details, dict) else None
+        if code == -57704 or subcode == -57704:
+            _LOGGER.debug("Controller authentication blocked by another active session")
+            raise Ac100SessionBusyError("Another administrator session is active")
         if code == -40401:
             if path != "/" and status != 403 and (subcode is None or subcode == -40401):
                 raise _SessionExpiredError("Controller session has expired")
@@ -253,6 +268,8 @@ class Ac100Api:
         return result
 
     async def _login(self) -> None:
+        self._ensure_open()
+        _LOGGER.debug("Controller authentication started")
         self._stok = None
         info = await self._post(
             "/", {"method": "do", "user_management": {"get_encrypt_info": None}}
@@ -276,25 +293,51 @@ class Ac100Api:
             }
         else:
             raise Ac100ProtocolError("Controller authentication method is unsupported")
+        self._ensure_open()
         result = await self._post("/", {"method": "do", "login": login})
         token = result.get("stok")
         if not isinstance(token, str) or not token:
             raise Ac100ProtocolError("Controller did not return a valid session token")
         self._stok = token
+        _LOGGER.debug("Controller authentication succeeded")
 
     async def async_login(self) -> None:
         """Authenticate without taking over or logging out another administrator."""
         async with self._lock:
+            self._ensure_open()
             await self._login()
 
+    async def async_logout(self) -> None:
+        """Retire this logical client and release only its token, without replaying a request."""
+        self._closed = True
+        async with self._lock:
+            if self._stok is None:
+                _LOGGER.debug("Controller own-session logout skipped; no active session")
+                return
+            _LOGGER.debug("Controller own-session logout started")
+            try:
+                await self._post(
+                    f"/stok={quote(self._stok, safe='')}/ds",
+                    {"method": "do", "system": {"logout": None}},
+                )
+            except _SessionExpiredError:
+                return
+            finally:
+                self._stok = None
+                _LOGGER.debug("Controller own-session cleanup complete")
+
     async def _request(self, data: dict[str, Any]) -> dict[str, Any]:
+        self._ensure_open()
         if self._stok is None:
             await self._login()
+        self._ensure_open()
         try:
             return await self._post(f"/stok={quote(self._stok, safe='')}/ds", data)
         except _SessionExpiredError:
+            _LOGGER.debug("Controller session expired; reauthenticating once")
             self._stok = None
             await self._login()
+            self._ensure_open()
             return await self._post(f"/stok={quote(self._stok, safe='')}/ds", data)
 
     async def _table(
@@ -365,6 +408,9 @@ class Ac100Api:
                 clients = {_mac(row.get("mac")): _parse_client(row) for row in client_rows}
             except KeyError, TypeError, AttributeError:
                 raise Ac100ProtocolError("Controller returned malformed device telemetry") from None
+            _LOGGER.debug(
+                "Controller snapshot received (aps=%s, clients=%s)", len(aps), len(clients)
+            )
             return Snapshot(
                 controller=controller, aps=tuple(aps.values()), clients=tuple(clients.values())
             )
@@ -372,6 +418,8 @@ class Ac100Api:
     async def async_set_ap_led(self, entry_id: str, enabled: bool) -> None:
         """Set one AP LED; do not retry on ambiguous network failures."""
         async with self._lock:
+            self._ensure_open()
+            _LOGGER.debug("Controller management request: AP LED (enabled=%s)", bool(enabled))
             await self._request(
                 {
                     "method": "set",
@@ -386,6 +434,8 @@ class Ac100Api:
     async def async_reboot_ap(self, entry_id: str) -> None:
         """Request one AP reboot, with no network-error replay."""
         async with self._lock:
+            self._ensure_open()
+            _LOGGER.debug("Controller management request: AP reboot")
             await self._request(
                 {"method": "do", "apmng_status": {"ap_reboot": {"entry_id": [entry_id]}}}
             )
@@ -393,4 +443,6 @@ class Ac100Api:
     async def async_reboot_controller(self) -> None:
         """Request a controller reboot, with no network-error replay."""
         async with self._lock:
+            self._ensure_open()
+            _LOGGER.debug("Controller management request: controller reboot")
             await self._request({"method": "do", "system": {"reboot": None}})

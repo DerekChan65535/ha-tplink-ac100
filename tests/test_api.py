@@ -1,8 +1,10 @@
 """Offline protocol tests using synthetic credentials and anonymized real response shapes."""
 
+import asyncio
 import copy
 import hashlib
 import json
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -13,7 +15,9 @@ from custom_components.tplink_ac100.api import (
     Ac100Api,
     Ac100AuthError,
     Ac100ConnectionError,
+    Ac100Error,
     Ac100ProtocolError,
+    Ac100SessionBusyError,
     normalize_host,
 )
 
@@ -129,6 +133,154 @@ async def test_modern_login_uses_nonce_without_force():
         "username": "admin",
         "password": hashlib.md5(b"example-password:challenge", usedforsecurity=False).hexdigest(),
         "encrypt_type": "3",
+    }
+
+
+async def test_logout_only_releases_the_clients_own_token():
+    api, session = make_api(metadata(), logged_in(), Response({"error_code": 0}))
+    await api.async_login()
+    await api.async_logout()
+    assert session.post.call_count == 3
+    assert session.post.call_args.args == ("http://controller.example/stok=synthetic-session/ds",)
+    assert session.post.call_args.kwargs["json"] == {"method": "do", "system": {"logout": None}}
+    assert api._stok is None
+    session.close.assert_not_called()
+    await api.async_logout()
+    assert session.post.call_count == 3
+
+
+async def test_logout_without_a_token_does_not_login_or_send_a_request():
+    api, session = make_api()
+    await api.async_logout()
+    assert api._stok is None
+    session.post.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "expired",
+    [
+        Response({"error_code": -40401, "data": {"code": -40401}}, status=401),
+        Response({"error_code": -40401}),
+    ],
+)
+async def test_logout_of_expired_session_succeeds_without_reauthentication(expired):
+    api, session = make_api(expired)
+    api._stok = "expired-synthetic-session"
+    await api.async_logout()
+    assert api._stok is None
+    assert session.post.call_count == 1
+    assert session.post.call_args.kwargs["json"] == {"method": "do", "system": {"logout": None}}
+
+
+@pytest.mark.parametrize(
+    ("response", "error"),
+    [
+        (Response(error=aiohttp.ClientConnectionError("secret-url")), Ac100ConnectionError),
+        (Response(status=401), Ac100AuthError),
+        (Response({"error_code": -12345}), Ac100ProtocolError),
+    ],
+)
+async def test_logout_failure_clears_token_without_replay_or_reauthentication(response, error):
+    api, session = make_api(response)
+    api._stok = "synthetic-session"
+    with pytest.raises(error) as exc:
+        await api.async_logout()
+    assert "secret-url" not in str(exc.value)
+    assert api._stok is None
+    assert session.post.call_count == 1
+    await api.async_logout()
+    assert session.post.call_count == 1
+
+
+@pytest.mark.parametrize(
+    ("method", "arguments"),
+    [
+        ("async_login", ()),
+        ("async_get_snapshot", ()),
+        ("async_set_ap_led", ("0", True)),
+        ("async_reboot_ap", ("0",)),
+        ("async_reboot_controller", ()),
+    ],
+)
+async def test_retired_client_cannot_login_poll_or_manage(method, arguments):
+    api, session = make_api()
+    await api.async_logout()
+    with pytest.raises(Ac100Error, match="client has been closed"):
+        await getattr(api, method)(*arguments)
+    session.post.assert_not_called()
+    session.close.assert_not_called()
+
+
+@pytest.mark.parametrize("method", ["async_login", "async_get_snapshot", "async_reboot_controller"])
+async def test_logout_retires_client_before_earlier_queued_actions_get_lock(method):
+    api, session = make_api(Response({"error_code": 0}))
+    api._stok = "synthetic-session"
+    await api._lock.acquire()
+    queued = asyncio.create_task(getattr(api, method)())
+    await asyncio.sleep(0)
+    closing = asyncio.create_task(api.async_logout())
+    await asyncio.sleep(0)
+    assert api._closed
+    api._lock.release()
+    with pytest.raises(Ac100Error, match="client has been closed"):
+        await queued
+    await closing
+    assert api._stok is None
+    assert session.post.call_count == 1
+    assert session.post.call_args.kwargs["json"] == {"method": "do", "system": {"logout": None}}
+
+
+class GatedResponse(Response):
+    """Keep an HTTP response in flight until a test explicitly releases it."""
+
+    def __init__(self, data):
+        super().__init__(data)
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def text(self):
+        self.started.set()
+        await self.release.wait()
+        return self.body
+
+
+async def test_close_during_poll_prevents_later_queries_but_releases_owned_session():
+    in_flight = GatedResponse(load("controller.json"))
+    api, session = make_api(in_flight, Response({"error_code": 0}))
+    api._stok = "synthetic-session"
+    poll = asyncio.create_task(api.async_get_snapshot())
+    await in_flight.started.wait()
+    closing = asyncio.create_task(api.async_logout())
+    await asyncio.sleep(0)
+    assert api._closed
+    in_flight.release.set()
+    with pytest.raises(Ac100Error, match="client has been closed"):
+        await poll
+    await closing
+    bodies = [call.kwargs["json"] for call in session.post.call_args_list]
+    assert len(bodies) == 2
+    assert bodies[0]["method"] == "get"
+    assert bodies[1] == {"method": "do", "system": {"logout": None}}
+    assert api._stok is None
+
+
+async def test_close_during_authentication_metadata_does_not_open_new_session():
+    in_flight = GatedResponse({"error_code": 0, "encrypt_type": ["-3"]})
+    api, session = make_api(in_flight)
+    login = asyncio.create_task(api.async_login())
+    await in_flight.started.wait()
+    closing = asyncio.create_task(api.async_logout())
+    await asyncio.sleep(0)
+    assert api._closed
+    in_flight.release.set()
+    with pytest.raises(Ac100Error, match="client has been closed"):
+        await login
+    await closing
+    assert api._stok is None
+    assert session.post.call_count == 1
+    assert session.post.call_args.kwargs["json"] == {
+        "method": "do",
+        "user_management": {"get_encrypt_info": None},
     }
 
 
@@ -259,11 +411,40 @@ async def test_bad_password_on_login_has_no_retry():
     assert session.post.call_count == 2
 
 
-async def test_conflicting_session_never_attempts_force_or_reauthentication():
-    api, session = make_api(Response({"error_code": -40100, "data": {"code": -57704}}))
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"error_code": -40100, "data": {"code": -57704}},
+        {"error_code": -57704},
+        {"error_code": -40401, "data": {"code": -57704}},
+    ],
+)
+async def test_conflicting_session_never_attempts_force_or_reauthentication(result):
+    api, session = make_api(Response(result, status=401))
     api._stok = "synthetic-session"
-    with pytest.raises(Ac100AuthError):
+    with pytest.raises(Ac100SessionBusyError):
         await api.async_reboot_controller()
+    assert session.post.call_count == 1
+
+
+async def test_login_busy_is_reported_without_force_or_retry():
+    api, session = make_api(
+        metadata(), Response({"error_code": -40100, "data": {"code": -57704}}, status=401)
+    )
+    with pytest.raises(Ac100SessionBusyError):
+        await api.async_login()
+    assert api._stok is None
+    assert session.post.call_count == 2
+    assert session.post.call_args.kwargs["json"]["login"]["force"] == 0
+
+
+@pytest.mark.parametrize("result", [{"error_code": -40100}, {"error_code": -57703}])
+async def test_other_authentication_errors_are_not_classified_as_busy(result):
+    api, session = make_api(Response(result, status=401))
+    api._stok = "synthetic-session"
+    with pytest.raises(Ac100AuthError) as exc:
+        await api.async_reboot_controller()
+    assert not isinstance(exc.value, Ac100SessionBusyError)
     assert session.post.call_count == 1
 
 
@@ -334,3 +515,127 @@ async def test_missing_table_page_fails_snapshot_instead_of_disconnect_all():
     api._stok = "synthetic-session"
     with pytest.raises(Ac100ProtocolError, match="incomplete table"):
         await api.async_get_snapshot()
+
+
+async def test_debug_logs_cover_operations_without_sensitive_data(caplog):
+    logger_name = "custom_components.tplink_ac100.api"
+    caplog.set_level(logging.DEBUG, logger=logger_name)
+    identity = load("identity.json")
+    next(iter(identity["interface"]["interface"][0].values()))["macaddr"] = "02-AB-CD-99-88-77"
+    aps = load("aps.json")
+    ap = next(iter(aps["apmng_status"]["ap_list"][0].values()))
+    ap.update(
+        entry_id="private-ap-id",
+        entry_name="private-ap-name",
+        mac="02-AB-CD-11-22-33",
+        ip="198.51.100.111",
+    )
+    clients = load("clients.json")
+    client = next(iter(clients["apmng_client"]["client_list"][0].values()))
+    client.update(
+        name="private-client-name",
+        ssid="private-ssid",
+        ap_name="private-ap-name",
+        mac="02-AB-CD-44-55-66",
+        ip="198.51.100.112",
+    )
+    responses = snapshot_responses()
+    responses[1:4] = [Response(identity), Response(aps), Response(clients)]
+    _, session = make_api(
+        metadata(),
+        Response({"error_code": 0, "stok": "private-auth-token"}),
+        *responses,
+        *(Response({"error_code": 0}) for _ in range(4)),
+    )
+    api = Ac100Api(session, "private-host.example", "private-username", "private-password")
+    await api.async_login()
+    await api.async_get_snapshot()
+    await api.async_set_ap_led("private-ap-id", True)
+    await api.async_reboot_ap("private-ap-id")
+    await api.async_reboot_controller()
+    await api.async_logout()
+    records = [record for record in caplog.records if record.name == logger_name]
+    messages = "\n".join(record.getMessage() for record in records)
+    secrets = (
+        "private-host.example",
+        "private-username",
+        "private-password",
+        "private-auth-token",
+        "private-ap-id",
+        "private-ap-name",
+        "private-client-name",
+        "private-ssid",
+        "02-AB-CD-99-88-77",
+        "02-AB-CD-11-22-33",
+        "02-AB-CD-44-55-66",
+        "02:ab:cd:99:88:77",
+        "02:ab:cd:11:22:33",
+        "02:ab:cd:44:55:66",
+        "198.51.100.111",
+        "198.51.100.112",
+        "http://",
+        "/stok=",
+        "error_code",
+    )
+    assert all(secret not in messages for secret in secrets)
+    encoded_password = session.post.call_args_list[1].kwargs["json"]["login"]["password"]
+    assert encoded_password not in messages
+    assert len(records) >= 8
+    assert all(record.levelno == logging.DEBUG for record in records)
+    assert all(isinstance(arg, (int, bool)) for record in records for arg in record.args)
+    assert any(record.args == (6, 14) for record in records)
+    assert any(record.args == (True,) for record in records)
+
+
+async def test_expiration_and_busy_debug_logs_are_safe_and_not_retried_repeatedly(caplog):
+    logger_name = "custom_components.tplink_ac100.api"
+    caplog.set_level(logging.DEBUG, logger=logger_name)
+    api, session = make_api(
+        Response(
+            {"error_code": -40401, "data": {"code": -40401}, "error_msg": "private-raw-response"},
+            status=401,
+        ),
+        metadata(),
+        logged_in(),
+        Response(
+            {"error_code": -40100, "data": {"code": -57704}, "error_msg": "private-raw-response"},
+            status=401,
+        ),
+    )
+    api._stok = "private-old-token"
+    with pytest.raises(Ac100SessionBusyError):
+        await api.async_set_ap_led("private-ap-id", False)
+    records = [record for record in caplog.records if record.name == logger_name]
+    messages = "\n".join(record.getMessage() for record in records)
+    assert messages.count("expired") == 1
+    assert "another active session" in messages
+    assert all(
+        secret not in messages
+        for secret in (
+            "private-old-token",
+            "private-ap-id",
+            "private-raw-response",
+            "synthetic-session",
+            "controller.example",
+            "example-password",
+            "admin",
+            "/stok=",
+        )
+    )
+    assert all(isinstance(arg, (int, bool)) for record in records for arg in record.args)
+    assert session.post.call_count == 4
+
+
+async def test_api_debug_logging_respects_level_and_does_not_configure_other_loggers(caplog):
+    logger_name = "custom_components.tplink_ac100.api"
+    caplog.set_level(logging.WARNING, logger=logger_name)
+    other_logger = logging.getLogger("aiohttp")
+    other_level = other_logger.level
+    root_level = logging.getLogger().level
+    api, session = make_api(metadata(), logged_in(), Response({"error_code": 0}))
+    await api.async_login()
+    await api.async_logout()
+    assert not any(record.name == logger_name for record in caplog.records)
+    assert other_logger.level == other_level
+    assert logging.getLogger().level == root_level
+    session.close.assert_not_called()

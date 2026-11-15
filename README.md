@@ -22,6 +22,7 @@ service is required.
 | AP LED | Optional control; based on interface evidence, not a live-write verification. |
 | AP/controller reboot | Optional, disruptive control; **not tested on live hardware**. |
 | SSID/wireless configuration changes | Not included in the initial release. |
+| Debug level logging | Native diagnostic switch; off by default, independent of device management. |
 | Default polling | **60 seconds**. |
 
 The minimum HA version is intentional: this integration uses current HA APIs, without
@@ -36,6 +37,27 @@ health check. Software tests and interface evidence do not establish hardware sa
 Client names, addresses, and presence can be sensitive. Review which entities you
 enable and expose to dashboards, history, automations, or external services.
 
+## Controller login sessions
+
+On the tested firmware, the controller allows **one management session at a time**.
+Monitoring uses that session even when optional management controls are disabled.
+
+- **Before adding the integration, sign out of all other controller management clients**,
+  including the AC web interface.
+- The HA entry keeps a session while connected. To use the **AC web interface**, first
+  **disable the entry in HA**; do not delete it. When finished, sign out of the web
+  interface, then re-enable the HA entry.
+- To change the connection address in HA, use the entry's **Reconfigure** flow; manual
+  disabling is not required. Reconfigure and reauthentication temporarily unload only
+  that entry before validation. If validation fails, reaches a different controller,
+  or the flow is cancelled, the original entry is restored automatically.
+- A **busy/session-in-use** error does not mean the password is wrong. Wait for the
+  other session to sign out or expire, then retry. Do not force another administrator out.
+
+Configuration validation releases its temporary session after checking the connection.
+Entry unload/reload releases only the session token owned by that entry; the integration
+never uses `force=1` or deliberately signs out another administrator.
+
 ## Install with HACS
 
 This repository can be added as a **HACS custom repository**. That is separate from
@@ -48,8 +70,8 @@ being included in HACS's default directory; do not assume default-directory incl
 5. **Restart Home Assistant Core**. Refreshing the browser or reloading an integration
    does not replace this restart after installing or changing its Python code.
 6. Open **Settings → Devices & services → Add integration → TP-Link AC100**.
-7. Enter the controller's management address and credentials. Start with monitoring;
-   leave management disabled.
+7. Sign out of other AC management clients, then enter the controller's management
+   address and credentials. Start with monitoring; leave optional management disabled.
 
 [Open this repository in HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=DerekChan65535&repository=ha-tplink-ac100&category=integration)
 
@@ -103,6 +125,26 @@ Remove or adjust dependent automations first. Delete the integration's config en
 in **Devices & services**, remove the code through HACS (or manually while HA is
 stopped), then restart HA. Removing a HACS repository alone does not guarantee removal
 of its stored configuration/data. Never delete the whole `custom_components` directory.
+
+## Debug level logging
+
+On the controller's HA device page, use the native **Debug level logging** diagnostic
+switch to turn this integration's debug logging on or off. No YAML logger changes are
+needed. The switch is independent of the optional device-management setting and
+remains usable when the controller is offline. Toggling it makes **no device API call**.
+
+- Default: **off**. Its state is not persisted; after an HA restart it starts off.
+- On: save the current levels, then set `custom_components.tplink_ac100` **and its
+  child loggers** to `DEBUG`. HA's root logger and other integrations are unchanged.
+- Off: restore the earlier non-`DEBUG` levels. Any logger in this namespace that would
+  still be at `DEBUG` is set to `INFO`, so an explicit child-logger level cannot bypass
+  the off state. Turn it off when the troubleshooting session is finished.
+
+The log allowlist contains only fixed operation/stage names, success/failure and fixed
+error categories, timing, and aggregate counts. Debug logging does **not** dump raw
+requests/responses, authentication exchanges, tokens/cookies/passwords, URLs containing
+credentials, or device/client names, MAC/IP addresses, and SSIDs. Review any log export
+before sharing it: this switch is not a system-wide log scrubber. See [SECURITY.md](SECURITY.md).
 
 ## Network and credential safety
 

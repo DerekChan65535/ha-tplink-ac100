@@ -7,6 +7,7 @@ from typing import Any
 import probatio
 from homeassistant.config_entries import (
     ConfigEntry,
+    ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlowWithReload,
@@ -22,6 +23,7 @@ from .api import (
     Ac100AuthError,
     Ac100ConnectionError,
     Ac100Error,
+    Ac100SessionBusyError,
     normalize_host,
 )
 from .const import CONF_ENABLE_CONTROL, DEFAULT_ENABLE_CONTROL, DOMAIN
@@ -60,11 +62,14 @@ async def async_validate_input(hass: HomeAssistant, data: Mapping[str, Any]) -> 
         data[CONF_USERNAME],
         data[CONF_PASSWORD],
     )
-    await api.async_login()
-    snapshot = await api.async_get_snapshot()
-    if snapshot.controller.model != "TL-AC100":
-        raise UnsupportedDevice
-    return format_mac(snapshot.controller.mac)
+    try:
+        await api.async_login()
+        snapshot = await api.async_get_snapshot()
+        if snapshot.controller.model != "TL-AC100":
+            raise UnsupportedDevice
+        return format_mac(snapshot.controller.mac)
+    finally:
+        await api.async_logout()
 
 
 class Ac100ConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -82,6 +87,8 @@ class Ac100ConfigFlow(ConfigFlow, domain=DOMAIN):
         """Map validation errors without exposing credentials or response bodies."""
         try:
             return await async_validate_input(self.hass, data)
+        except Ac100SessionBusyError:
+            errors["base"] = "session_busy"
         except Ac100AuthError:
             errors["base"] = "invalid_auth"
         except Ac100ConnectionError:
@@ -94,6 +101,35 @@ class Ac100ConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.error("Unexpected controller validation error: %s", type(err).__name__)
             errors["base"] = "unknown"
         return None
+
+    async def _async_update_existing_entry(
+        self,
+        entry: ConfigEntry,
+        data_updates: dict[str, Any],
+        errors: dict[str, str],
+    ) -> ConfigFlowResult | None:
+        """Release our own session for validation and restore it on every failed update."""
+        unloaded = False
+        updated = False
+        try:
+            if entry.state is ConfigEntryState.LOADED:
+                if not await self.hass.config_entries.async_unload(entry.entry_id):
+                    errors["base"] = "unknown"
+                    return None
+                unloaded = True
+            unique_id = await self._async_validate({**entry.data, **data_updates}, errors)
+            if unique_id is None:
+                return None
+            await self.async_set_unique_id(unique_id)
+            self._abort_if_unique_id_mismatch(reason="wrong_device")
+            if CONF_HOST in data_updates:
+                data_updates = {**data_updates, CONF_HOST: normalize_host(data_updates[CONF_HOST])}
+            result = self.async_update_reload_and_abort(entry, data_updates=data_updates)
+            updated = True
+            return result
+        finally:
+            if unloaded and not updated:
+                await self.hass.config_entries.async_setup(entry.entry_id)
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle an explicitly requested controller setup."""
@@ -115,13 +151,8 @@ class Ac100ConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self._get_reconfigure_entry()
         errors: dict[str, str] = {}
         if user_input is not None:
-            data = {**entry.data, **user_input}
-            if unique_id := await self._async_validate(data, errors):
-                await self.async_set_unique_id(unique_id)
-                self._abort_if_unique_id_mismatch(reason="wrong_device")
-                return self.async_update_reload_and_abort(
-                    entry, data_updates={CONF_HOST: normalize_host(user_input[CONF_HOST])}
-                )
+            if result := await self._async_update_existing_entry(entry, user_input, errors):
+                return result
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=self.add_suggested_values_to_schema(RECONFIGURE_SCHEMA, entry.data),
@@ -139,10 +170,8 @@ class Ac100ConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self._get_reauth_entry()
         errors: dict[str, str] = {}
         if user_input is not None:
-            if unique_id := await self._async_validate({**entry.data, **user_input}, errors):
-                await self.async_set_unique_id(unique_id)
-                self._abort_if_unique_id_mismatch(reason="wrong_device")
-                return self.async_update_reload_and_abort(entry, data_updates=user_input)
+            if result := await self._async_update_existing_entry(entry, user_input, errors):
+                return result
         return self.async_show_form(
             step_id="reauth_confirm",
             data_schema=self.add_suggested_values_to_schema(

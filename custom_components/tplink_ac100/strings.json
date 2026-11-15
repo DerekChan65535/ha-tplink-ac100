@@ -39,10 +39,11 @@
       }
     },
     "error": {
-      "invalid_auth": "Authentication failed. Check the username and password, or whether another administrator session blocks access.",
+      "invalid_auth": "Authentication failed. Check the controller username and password.",
       "cannot_connect": "Could not connect to the controller.",
       "unsupported_device": "This device is not a supported TL-AC100 controller.",
-      "unknown": "The controller returned an unsupported response or an unexpected error occurred."
+      "unknown": "The controller returned an unsupported response or an unexpected error occurred.",
+      "session_busy": "This account already has another management session. Sign out in the other management client or wait for that session to expire, then try again. The integration will not force a takeover."
     },
     "abort": {
       "already_configured": "This controller is already configured.",
@@ -69,6 +70,9 @@
     "switch": {
       "led": {
         "name": "Indicator LED"
+      },
+      "debug_logging": {
+        "name": "Debug logging"
       }
     },
     "button": {
@@ -114,6 +118,9 @@
     },
     "control_unavailable": {
       "message": "The device is offline or is not managed by this controller."
+    },
+    "session_busy": {
+      "message": "This account already has another management session. Sign out in the other management client or wait for that session to expire, then try again. The integration will not force a takeover."
     }
   }
 }

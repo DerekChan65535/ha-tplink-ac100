@@ -6,14 +6,33 @@
 
 - Local, native Home Assistant integration for TP-LINK TL-AC100 controllers.
 - Controller/AP/client monitoring, with a default 60-second polling interval.
+- Native **Debug level logging** diagnostic switch, off by default and independent of
+  device management. It saves levels and sets this integration's namespace and child
+  loggers to `DEBUG`, without changing HA's root logger or other integrations. Off
+  restores prior non-`DEBUG` levels and sets any remaining in-namespace `DEBUG` logger
+  to `INFO`, so explicit child levels cannot bypass it. It starts off after an HA restart.
+  It remains usable offline and makes no device API call. Logs use a metadata-only
+  allowlist; raw request/response or authentication dumps are not supported.
 - Optional AP LED and reboot controls. Management is off by default; reboot button
   entities are disabled by default. SSID changes are not included.
+- Session-safe setup and cleanup: configuration validation releases its temporary
+  login, and entry unload/reload releases only its own token. No `force=1` login or
+  intentional eviction of other administrators.
+- GitHub private vulnerability reporting is enabled for this repository.
 
 ### Compatibility and limitations
 
 - Minimum Home Assistant: **2026.11.1**. Older HA releases are not supported.
 - Read-only hardware checks: TL-AC100 hardware **5.0**, firmware **1.0.5 Build 250814 Rel.82234n**.
   Other combinations are unverified.
+- Tested firmware permits one management session at a time, including read-only HA
+  polling. Sign out of other AC management clients before adding HA. To use the AC
+  web interface, disable (do not delete) the HA entry first; sign out of the web
+  interface when finished, then re-enable HA. Changing the address via HA Reconfigure
+  does not require manual disabling: reconfigure/reauth unloads only its own entry
+  before validation, then restores it on failure, wrong-device detection, or cancellation.
+  A busy/session-in-use response is not a wrong-password response; wait for the other
+  session to exit or expire.
 - LED/AP reboot/controller reboot operations are based on interface evidence and
   software tests, **not live-write validation**. Do not test reboots on production Wi-Fi.
 - This is an early community release, not an official TP-LINK or HA integration.
