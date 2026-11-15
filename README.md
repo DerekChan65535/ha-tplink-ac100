@@ -8,10 +8,9 @@ service is required.
 [Releases](https://github.com/DerekChan65535/ha-tplink-ac100/releases) · [Report an issue](https://github.com/DerekChan65535/ha-tplink-ac100/issues) · [Security](SECURITY.md)
 
 > **Early release.** This is not an official TP-LINK or Home Assistant integration.
-> Read-only polling has been checked on the hardware/firmware listed below.
-> Optional AP LED management was live-tested through native HA on one AP
-> (TL-XAP1506GC-PoE/DC): guarded off, then on, with readback; the original state was
-> restored. Reboot actions have **not** been tested on live hardware.
+> Polling and the optional controls have been checked on one controller with the
+> hardware/firmware listed below; every control except reboot was changed, read back and
+> restored there. Reboot actions have **not** been tested on live hardware.
 > Do not test reboot actions on a production Wi-Fi network.
 
 ## Scope and compatibility
