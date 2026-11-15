@@ -95,9 +95,10 @@ Monitoring is the default. Management is **off by default**, and reboot button e
 are **disabled by default**. Interface evidence and mock tests do not establish that a
 write is safe on any firmware. Initial LED checks exposed asymmetric values: readback
 `1` means on, `2` off, and `0` unknown; writes use `1` for on and `0` for off. The original
-on state has been restored and checked against HA, but the corrected native HA off/on
-cycle **still awaits final validation**. AP/controller reboot has not been tested on
-live hardware. SSID changes are not included initially.
+on state is now handled. After the fix, one AP was switched off and on through the native
+HA switch, with readback, and its original state was restored. Other AP models and
+firmware are untested. AP/controller reboot has not been tested on live hardware. SSID
+changes are not included initially.
 
 Some APs link LED state with Wi-Fi. Before **each** LED write, the integration must
 confirm `led_wifi_sync` is explicitly **off**; on, missing, or unknown blocks the write.
@@ -156,8 +157,8 @@ a change that was already applied to the controller.
 忙碌/会话占用不等于密码错误，等待其他会话退出或超时即可重试。
 
 管理默认关闭，重启按钮默认禁用。LED 读取 `1` 开/`2` 关/`0` 未知，写入则为 `1` 开/`0` 关；
-初测发现并修正此差异。原开启状态已由读取 `1` 和 HA 开启状态核对恢复，但修正后的原生 HA off/on 周期
-仍待最终验收。重启未在真机执行，不要用生产 Wi-Fi 试重启。每次 LED 写前必须确认
+初测发现并修正此差异。修复后已通过原生 HA 开关在一台 AP 上关闭、开启并读回，已恢复原状态；
+其他 AP 型号和固件未测试。重启未在真机执行，不要用生产 Wi-Fi 试重启。每次 LED 写前必须确认
 `led_wifi_sync` 明确关闭，开启、缺失或未知时拒绝；不修改联动选项或无线设置，不能无条件承诺 LED 不影响 Wi-Fi。
 仅请求 LED 操作时，按 `entry_id` 精确过滤读取一条 AP 配置；默认只读轮询不读 `apmng_set`。
 设备没有字段投影，返回行可能含 AP 管理字段，不能声称完全不读取；仅在 HA 内存中临时处理，

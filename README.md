@@ -9,8 +9,9 @@ service is required.
 
 > **Early release.** This is not an official TP-LINK or Home Assistant integration.
 > Read-only polling has been checked on the hardware/firmware listed below.
-> Optional LED management is **not fully live-validated**; the corrected native HA
-> off/on cycle is still pending. Reboot actions have **not** been tested on live hardware.
+> Optional AP LED management was live-tested through native HA on one AP
+> (TL-XAP1506GC-PoE/DC): guarded off, then on, with readback; the original state was
+> restored. Reboot actions have **not** been tested on live hardware.
 > Do not test reboot actions on a production Wi-Fi network.
 
 ## Scope and compatibility
@@ -18,9 +19,9 @@ service is required.
 | Item | Status |
 | --- | --- |
 | Home Assistant | Requires **2026.11.1 or newer**; development/test target: 2026.11.1. Older versions are not supported. |
-| Controller | Read-only checks: **TL-AC100 hardware 5.0**, firmware **1.0.5 Build 250814 Rel.82234n**. Other versions are unverified. |
+| Controller | Live-checked: **TL-AC100 hardware 5.0**, firmware **1.0.5 Build 250814 Rel.82234n** (read-only polling in native HA, one AP LED cycle). Other versions are unverified. |
 | Monitoring | Controller, managed AP, and connected-client state as native HA entities. |
-| AP LED | Guarded optional control; requires LED/Wi-Fi sync explicitly off. Corrected native HA off/on validation is pending. |
+| AP LED | Guarded optional control; requires LED/Wi-Fi sync explicitly off. Live-tested through native HA on one TL-XAP1506GC-PoE/DC AP (off, on, restore). Other AP models and firmware are unverified. |
 | AP/controller reboot | Optional, disruptive control; **not tested on live hardware**. |
 | SSID/wireless configuration changes | Not included in the initial release. |
 | Debug level logging | Native diagnostic switch; off by default, independent of device management. |
@@ -50,9 +51,12 @@ LED readback and write values differ on the tested protocol:
 | Read LED state | `1` | `2` | `0` |
 | Write LED state | `1` | `0` | Not a write value |
 
-Initial live checks exposed this difference. The original on state has been restored
-and confirmed by readback `1` and HA showing on. A full off/on cycle through native HA
-after the correction **has not yet completed final validation**.
+Initial live checks exposed this difference, which is now handled. After the fix, one
+AP (TL-XAP1506GC-PoE/DC, `led_wifi_sync` off) was switched off and on through the native
+HA switch. HA showed off, then on; the AP stayed online and its client count did not
+change. A direct controller readback confirmed the original on state (`1`). Other AP
+models, firmware, and APs with LED/Wi-Fi sync on are not live-tested; the sync-on case
+is covered only by simulated tests, where the write is refused.
 
 Some APs can link their LED and Wi-Fi state. Before **every** LED write, the integration
 must read `led_wifi_sync` and confirm it is explicitly **off**; on, missing, or unknown

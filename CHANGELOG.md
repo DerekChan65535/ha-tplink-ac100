@@ -37,9 +37,11 @@
   before validation, then restores it on failure, wrong-device detection, or cancellation.
   A busy/session-in-use response is not a wrong-password response; wait for the other
   session to exit or expire.
-- Initial live LED checks exposed the asymmetric protocol values. The original on state
-  was restored and confirmed by readback `1` and HA on. Final validation of the corrected
-  native HA off/on cycle **is still pending**; do not treat restoration as full success.
+- Initial live LED checks exposed the asymmetric protocol values. After the fix, one AP
+  (TL-XAP1506GC-PoE/DC, `led_wifi_sync` off) was switched off and on through the native HA
+  switch on the checked controller. HA showed off, then on; the AP stayed online with an
+  unchanged client count, and a direct readback confirmed the original on state. Other AP
+  models and firmware are untested; the sync-on refusal path is covered by simulated tests.
 - Some APs link LED state with Wi-Fi; LED control has no unconditional non-disruption
   guarantee. The explicit-sync-off precondition is required before every write.
 - AP/controller reboot has **not** been tested on live hardware. Do not test reboots
