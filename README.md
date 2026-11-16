@@ -36,8 +36,8 @@ you accept the risk. Reboot button entities are also disabled by default; turnin
 the option does not make it safe to invoke them. Do not use write operations as a
 health check. Software tests and interface evidence do not establish hardware safety.
 
-Client names, addresses, and presence can be sensitive. Review which entities you
-enable and expose to dashboards, history, automations, or external services.
+Client names, addresses, presence, and traffic rates can be sensitive. Review which
+entities you enable and expose to dashboards, history, automations, or external services.
 
 ## What it shows
 
@@ -53,8 +53,8 @@ Native readings, not an embedded controller web panel:
   reports a speed for each client, not for each AP, so these are sums of the client speeds (the
   values on its Wireless Terminal Management page). The controller sensors add up all clients.
   An AP sensor adds up the clients that report the AP's name, because the controller names the
-  AP of a client and nothing else. It is unavailable while another AP has the same name, so give
-  each AP a unique name in the controller. A client without a reported speed adds nothing, and a
+  AP of a client and nothing else. It is unavailable while any other AP, even an offline one,
+  has the same name, so give each AP a unique name in the controller. A client without a reported speed adds nothing, and a
   sensor is unknown when none of its clients reports one. Client trackers show their own speeds
   as attributes.
 - Settings, disabled by default: 70 controller settings (roaming, band steering, load
@@ -66,10 +66,12 @@ Native readings, not an embedded controller web panel:
 - The original **Uptime (seconds)** entities keep their unique IDs, numeric seconds and
   statistics. They are disabled by default only on new installations.
 
-Polling shares the existing single management session. The core poll remains at
-60 seconds; it also reads the controller's host table for the client speeds (one more
-request for every 10 hosts it lists), and if that table cannot be read only the speeds
-become unknown. Status, port, interface and firmware reads run every 5 minutes. Settings
+Polling shares the existing single management session. Every 60-second core poll also
+reads `host_management.host_info` for the client speeds, including when no client is
+connected. It adds one request per 10 listed hosts, which can include departed hosts,
+with a limit of 256 rows (up to 26 requests). A rejected, malformed or oversized table
+makes only the speeds unknown. Connection and session errors still fail the poll.
+Status, port, interface and firmware reads run every 5 minutes. Settings
 are read every 15 minutes, and **only while at least one settings entity is enabled**.
 The slower reads are staggered, with no burst to catch up after downtime. A failed
 slower read makes its readings unavailable; old values are not presented as current.

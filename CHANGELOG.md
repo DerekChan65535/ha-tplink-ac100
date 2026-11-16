@@ -16,10 +16,11 @@
 
 - Wi-Fi upload speed and Wi-Fi download speed sensors (KB/s) for the controller, which add up
   all clients, and for each AP, which add up the clients that report the AP's name. An AP's
-  sensors are unavailable while another AP has the same name, because the controller tells
-  only the name of a client's AP; rename one of them in the controller. The speeds are the
-  ones that the controller reports for each client in its Wireless Terminal Management table,
-  read with the 60-second poll. If that table cannot be read, only the speeds are unknown.
+  sensors are unavailable while any other AP, even an offline one, has the same name, because
+  the controller tells only the name of a client's AP; rename one of them in the controller.
+  The speeds are the ones that the controller reports for each client in its Wireless Terminal
+  Management table, read with the 60-second poll. Rejected, malformed or oversized tables make
+  only the speeds unknown; connection and session errors still fail the poll.
 - Client trackers show `upload_kilobytes_per_second` and `download_kilobytes_per_second`
   attributes while the controller reports them.
 

@@ -49,6 +49,18 @@ Ordinary non-security bugs belong in the public issue tracker with redacted logs
   raw controller responses. The project does not need telemetry or cloud uploads to
   operate; GitHub/HACS and Python dependency downloads may use Internet access on install.
 
+## Client data
+
+Normal polling reads the client association list and `host_management.host_info`, even
+with management off and all client trackers disabled. These tables contain client names,
+MAC/IP addresses, SSIDs and traffic rates; the host table can also include departed hosts
+and per-client limits. Only current clients receive speed values; raw host rows and their
+other fields are discarded in memory. Device names and MACs remain in HA's device registry,
+and enabled trackers expose client details as state attributes, which HA may record or
+export. Controller/AP speed sensors expose sums of the clients' reported rates. Logs and
+downloadable diagnostics do not include these client records. Review HA's recorder and
+external-service settings before enabling or sharing client entities.
+
 ## Debug logging allowlist
 
 The native **Debug level logging** diagnostic switch defaults to off and is independent
