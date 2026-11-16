@@ -11,7 +11,7 @@ import math
 import re
 import unicodedata
 from asyncio import sleep
-from collections.abc import Awaitable, Mapping
+from collections.abc import Awaitable, Iterable, Mapping
 from dataclasses import replace
 from datetime import datetime
 from time import monotonic
@@ -51,6 +51,61 @@ from .monitoring import (
     Scalar,
     WirelessService,
 )
+from .terminal import (
+    SCHEDULE_FIELDS,
+    TerminalBindingTarget,
+    TerminalField,
+    TerminalState,
+    validate_terminal_value,
+)
+from .terminal_api import (
+    BINDING_IS_OFF,
+    BINDING_NOT_EDITABLE,
+    BINDING_TARGET_GONE,
+    BINDING_TARGET_NEEDED,
+    NO_RECORD,
+    NOT_CONNECTED,
+    PARTIAL_CLEAR,
+    PARTIAL_LINK,
+    PARTIAL_UNLINK,
+    PARTIAL_UPDATE,
+    RADIO_BIND_MODULE,
+    RADIO_BIND_TABLE,
+    RATE_LIMIT_IS_OFF,
+    SCHEDULE_NOT_OWNED,
+    SCHEDULE_UNREADABLE,
+    STILL_CONNECTED,
+    HostRecord,
+    RadioBinding,
+    TerminalRefusal,
+    ap_directory,
+    binding_targets,
+    build_configuration,
+    host_delete_request,
+    host_disconnect_request,
+    host_name_request,
+    host_update_para,
+    host_update_request,
+    merge_host_rows,
+    new_time_object_id,
+    parse_radio_bind_rows,
+    radio_bind_filter,
+    saved_radio_ids,
+    target_for_radios,
+    time_object_add_request,
+    time_object_delete_request,
+    time_object_ids,
+    time_object_is_exclusive,
+    time_object_read_request,
+    time_object_set_request,
+)
+from .terminal_schedule import (
+    TerminalSchedule,
+    change_terminal_schedule,
+    is_terminal_time_object,
+    parse_terminal_schedule,
+    terminal_time_object_para,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,7 +114,8 @@ _PAGE_SIZE = 10
 # count is treated as invalid instead of paged through.
 _MAX_OPTIONAL_ROWS = 256
 # One row per AP radio: at most 100 APs with at most 6 radios each (max_radio_per_ap).
-_MAX_RADIO_ROWS = 600
+# Source capability max_radio_count includes physical radios and templates.
+_MAX_RADIO_ROWS = 1368
 _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=15)
 _LEGACY_SALT = "RDpbLfCPsJZ7fiv"
 _LEGACY_ALPHABET = (
@@ -110,6 +166,26 @@ class Ac100SaveTimeoutError(Ac100Error):
 
     The save request was accepted, so the outcome is unknown. It is never sent again.
     """
+
+
+class Ac100TerminalError(Ac100Error):
+    """A terminal action was refused before anything was sent to the controller.
+
+    The message is a fixed sentence without any name, address or identifier, so it can be shown.
+    """
+
+
+class Ac100TerminalPartialError(Ac100Error):
+    """A terminal action stopped after an earlier step had been acknowledged.
+
+    A later step failed or its outcome is unknown. The steps already taken stay, nothing is
+    retried or undone, and the state must be read again. ``stage`` and the message are fixed
+    text without any identifier.
+    """
+
+    def __init__(self, message: str, stage: str) -> None:
+        super().__init__(message)
+        self.stage = stage
 
 
 def normalize_host(host: str) -> str:
@@ -219,6 +295,14 @@ def _mac(value: Any) -> str:
     return value.replace("-", ":").lower()
 
 
+def _terminal_mac(value: str) -> str:
+    """The normal form of a MAC that a caller names; ValueError if it is not a MAC address."""
+    try:
+        return _mac(value)
+    except Ac100ProtocolError:
+        raise ValueError("Not a MAC address") from None
+
+
 def _parse_ap(row: dict[str, Any]) -> AccessPoint:
     radios = tuple(
         ApRadio(
@@ -267,13 +351,17 @@ def _parse_client(row: dict[str, Any]) -> Client:
         operating_system=_client_identification(row.get("operating_system")),
         vlan_id=_client_vlan(row.get("vlan_id")),
         connected_at=_client_connected_at(row),
+        ssid_encoding=_text(row.get("encode"), 8),
     )
 
 
 def _client_identification(value: Any) -> str | None:
-    """The controller's vendor/OS identification, excluding its unknown placeholders."""
+    """The controller's vendor/OS identification, excluding its unknown placeholders.
+
+    ``others`` is a category of the controller's identification list, not an unknown.
+    """
     text = _version(value)
-    return None if text is None or text.casefold() in {"others", "unknown"} else text
+    return None if text is None or text.casefold() == "unknown" else text
 
 
 def _client_vlan(value: Any) -> int | None:
@@ -772,16 +860,16 @@ class Ac100Api:
                 memory_usage=_number(_section(result, "system", "mem_usage").get("mem")),
                 uptime=_integer(_section(result, "system", "system_time").get("run")),
             )
-            ap_rows = await self._table(
-                "apmng_status", "ap_list", [{"group_id": ["-1"], "ap_status": ["0"]}]
-            )
-            client_rows = await self._table("apmng_client", "client_list", [{"group_id": ["-1"]}])
+            ap_rows = await self._read_ap_rows()
+            client_rows = await self._read_client_rows()
             try:
                 aps = {_mac(row.get("mac")): _parse_ap(row) for row in ap_rows}
                 clients = {_mac(row.get("mac")): _parse_client(row) for row in client_rows}
             except KeyError, TypeError, AttributeError:
                 raise Ac100ProtocolError("Controller returned malformed device telemetry") from None
             hosts = await self._read_optional_hosts()
+            terminals = None if hosts is None else await self._read_terminals(hosts, aps.values())
+            hosts = hosts or {}
             clients = {
                 mac: _with_speeds(client, hosts.get(mac, [])) for mac, client in clients.items()
             }
@@ -789,8 +877,19 @@ class Ac100Api:
                 "Controller snapshot received (aps=%s, clients=%s)", len(aps), len(clients)
             )
             return Snapshot(
-                controller=controller, aps=tuple(aps.values()), clients=tuple(clients.values())
+                controller=controller,
+                aps=tuple(aps.values()),
+                clients=tuple(clients.values()),
+                terminals=terminals,
             )
+
+    async def _read_ap_rows(self) -> list[dict[str, Any]]:
+        return await self._table(
+            "apmng_status", "ap_list", [{"group_id": ["-1"], "ap_status": ["0"]}]
+        )
+
+    async def _read_client_rows(self) -> list[dict[str, Any]]:
+        return await self._table("apmng_client", "client_list", [{"group_id": ["-1"]}])
 
     async def _optional[T](self, read: Awaitable[T]) -> T | None:
         """Await one optional read: a rejected or malformed answer is None, nothing else is."""
@@ -818,22 +917,139 @@ class Ac100Api:
             hosts.setdefault(_mac(row.get("mac")), []).append(row)
         return hosts
 
-    async def _read_optional_hosts(self) -> dict[str, list[dict[str, Any]]]:
-        """The host table's rows by MAC, or none if it is garbled or this account may not read it.
+    async def _read_optional_hosts(self) -> dict[str, list[dict[str, Any]]] | None:
+        """The host table's rows by MAC, or None if it is garbled or this account may not read it.
 
         The client list was just read, so an authorization error here is about this table, not
         about the credentials. Connection and session errors propagate.
         """
+        hosts = await self._read_dependent(self._read_hosts())
+        if hosts is None:
+            _LOGGER.debug("Controller client speeds are unavailable")
+        return hosts
+
+    async def _read_dependent[T](self, read: Awaitable[T]) -> T | None:
+        """Await a read that only adds to a healthy poll; None if it is garbled or not allowed.
+
+        The core reads of the poll just succeeded, so an authorization error here is about this
+        source, not about the credentials. Connection and session errors propagate.
+        """
         try:
-            hosts = await self._optional(self._read_hosts())
+            return await self._optional(read)
         except Ac100SessionBusyError:
             raise
         except Ac100AuthError:
-            hosts = None
-        if hosts is None:
-            _LOGGER.debug("Controller client speeds are unavailable")
-            return {}
-        return hosts
+            if self._stok is None:
+                raise  # a failed sign-in, not a permission error on this source
+            return None
+
+    async def _read_radio_bindings(
+        self, service: int | None, entry_macs: Mapping[str, str]
+    ) -> tuple[RadioBinding, ...]:
+        """Read the manager's direct, unpaged radio list, rejecting incomplete answers."""
+        result = await self._request(
+            {
+                "method": "get",
+                RADIO_BIND_MODULE: {
+                    "table": RADIO_BIND_TABLE,
+                    "filter": radio_bind_filter(service),
+                },
+            }
+        )
+        count = _count(_section(result, RADIO_BIND_MODULE, "count").get(RADIO_BIND_TABLE))
+        rows = _rows(result, RADIO_BIND_MODULE, RADIO_BIND_TABLE)
+        if count is None or count > _MAX_RADIO_ROWS or len(rows) != count:
+            raise Ac100ProtocolError("Controller radio binding list is incomplete or invalid")
+        try:
+            return parse_radio_bind_rows(rows, entry_macs)
+        except ValueError:
+            raise Ac100ProtocolError("Invalid radio binding data") from None
+
+    async def _read_time_object(self, object_id: str) -> dict[str, Any]:
+        """Read one time object as the terminal page does, with no paging.
+
+        A filter on the address that gives no row or several is not the object that was asked
+        for, so only exactly one row is accepted.
+        """
+        result = await self._request(time_object_read_request(object_id))
+        rows = _rows(result, "time_mngt", "time_obj")
+        if len(rows) != 1:
+            raise Ac100ProtocolError("Controller returned an unexpected time object")
+        return rows[0]
+
+    async def _read_schedule(self, object_id: str) -> TerminalSchedule:
+        try:
+            return parse_terminal_schedule(await self._read_time_object(object_id))
+        except ValueError:
+            raise Ac100ProtocolError("Invalid time object data") from None
+
+    async def _read_terminals(
+        self, hosts: dict[str, list[dict[str, Any]]], aps: Iterable[AccessPoint]
+    ) -> TerminalState:
+        """The saved configuration of every record of the host table, which is already read.
+
+        Two sources fill in what a record only points to. The radio binding list names the AP
+        and radio of a saved binding and offers the targets of each wireless network: it is read
+        once for each network that a record is connected to, and once more for every radio if a
+        saved binding is still unnamed after that. A time object holds a schedule and is read
+        once for each address that a record links to. The host table bounds both sets. A source
+        rejection leaves only its values unknown. The first transport failure discards all R/T
+        results and stops this batch, while the fresh core, clients and scalar host data survive.
+        Actual sign-in failures, busy sessions and account locks still propagate.
+        """
+        entry_macs, ap_names = ap_directory(aps)
+        records = [merge_host_rows(mac, rows) for mac, rows in hosts.items()]
+        services = dict.fromkeys(
+            record.service
+            for record in records
+            if record.service is not None and record.service >= 0
+        )
+        radios: dict[str, RadioBinding] = {}
+        targets: dict[int, tuple[TerminalBindingTarget, ...] | None] = {}
+        schedules: dict[str, TerminalSchedule | None] = {}
+        try:
+            for service in services:
+                found = await self._read_dependent(self._read_radio_bindings(service, entry_macs))
+                targets[service] = None if found is None else binding_targets(found, ap_names)
+                radios.update({radio.radio_id: radio for radio in found or ()})
+            if any(
+                radio_id not in radios
+                for record in records
+                for radio_id in saved_radio_ids(record) or ()
+            ):
+                found = await self._read_dependent(self._read_radio_bindings(None, entry_macs))
+                radios.update({radio.radio_id: radio for radio in found or ()})
+            object_ids = dict.fromkeys(
+                ids[0] for record in records if len(ids := time_object_ids(record) or ()) == 1
+            )
+            for object_id in object_ids:
+                schedules[object_id] = await self._read_dependent(self._read_schedule(object_id))
+        except Ac100ConnectionError:
+            if self._stok is None:
+                raise  # authentication failed, not a transport failure on a dependent source
+            # One failed dependency stops this batch; do not keep partial or earlier R/T data.
+            radios.clear()
+            targets.clear()
+            schedules.clear()
+            _LOGGER.debug("Controller terminal dependent sources are unavailable")
+        _LOGGER.debug(
+            "Controller terminal records received (records=%s, services=%s, schedules=%s)",
+            len(records),
+            len(targets),
+            len(schedules),
+        )
+        return TerminalState(
+            tuple(
+                build_configuration(
+                    record,
+                    targets=targets.get(record.service) if record.service is not None else None,
+                    radios=radios,
+                    ap_names=ap_names,
+                    schedules=schedules,
+                )
+                for record in records
+            )
+        )
 
     async def _get_sections(
         self, wanted: Mapping[str, tuple[str, ...]]
@@ -1235,3 +1451,253 @@ class Ac100Api:
             self._ensure_open()
             _LOGGER.debug("Controller management request: controller reboot")
             await self._request({"method": "do", "system": {"reboot": None}})
+
+    async def _terminal_records(self) -> dict[str, HostRecord]:
+        """Read the host table now: a write is planned from this, never from the last poll."""
+        hosts = await self._read_hosts()
+        return {mac: merge_host_rows(mac, rows) for mac, rows in hosts.items()}
+
+    async def _present_terminals(self) -> dict[str, str]:
+        """The MAC of every client that the client list shows now, as the controller spells it."""
+        rows = await self._read_client_rows()
+        return {_mac(row.get("mac")): str(row["mac"]) for row in rows}
+
+    async def _fresh_targets(self, record: HostRecord) -> tuple[TerminalBindingTarget, ...]:
+        """The binding targets of the record's wireless network, read now.
+
+        An AP is named by its MAC, found from the radio's address in the AP list that is read
+        here too, so no name and no address from an earlier poll is trusted.
+        """
+        if record.service is None or record.offline:
+            raise TerminalRefusal(BINDING_NOT_EDITABLE)
+        try:
+            aps = [_parse_ap(row) for row in await self._read_ap_rows()]
+        except KeyError, TypeError, AttributeError:
+            raise Ac100ProtocolError("Controller returned malformed device telemetry") from None
+        entry_macs, ap_names = ap_directory(aps)
+        radios = await self._read_radio_bindings(record.service, entry_macs)
+        return binding_targets(radios, ap_names)
+
+    async def async_set_terminal_field(
+        self, mac: str, field: TerminalField, value: bool | int | str
+    ) -> None:
+        """Change one saved setting of one terminal, once and without a replay.
+
+        The value is checked first (ValueError, and nothing is read or sent). Then, under the
+        shared lock, the terminal's record is read again from the host table, and the change is
+        planned from that read: the terminal page's whole form is sent with every other setting
+        as it was read, apart from the rename, which sends the name alone as the identification
+        page does. A binding target is looked up again from the AP list and the radio list, and
+        enables binding in the same request. A schedule edit is a series of requests whose
+        steps stop at the first failure; after an acknowledged step that is a
+        Ac100TerminalPartialError. A refusal of the current state is an Ac100TerminalError.
+        """
+        field = TerminalField(field)
+        value = validate_terminal_value(field, value)
+        mac = _terminal_mac(mac)
+        async with self._lock:
+            self._ensure_open()
+            try:
+                await self._set_terminal_field(mac, field, value)
+            except TerminalRefusal as err:
+                raise Ac100TerminalError(str(err)) from None
+
+    async def _set_terminal_field(
+        self, mac: str, field: TerminalField, value: bool | int | str
+    ) -> None:
+        records = await self._terminal_records()
+        if (record := records.get(mac)) is None:
+            raise TerminalRefusal(NO_RECORD)
+        if field in SCHEDULE_FIELDS:
+            await self._set_terminal_schedule(record, records, field, value)
+            return
+        if field is TerminalField.NAME:
+            if record.get("hostname") == value:
+                return
+            request = host_name_request(record, str(value))
+        else:
+            if (changes := await self._terminal_changes(record, field, value)) is None:
+                return
+            request = host_update_request(record, host_update_para(record, **changes))
+        _LOGGER.debug("Controller management request: terminal setting (%s)", field.value)
+        await self._request(request)
+
+    async def _terminal_changes(
+        self, record: HostRecord, field: TerminalField, value: bool | int | str
+    ) -> dict[str, Any] | None:
+        """The form settings that a change sets, or None if the record already has them."""
+        if field is TerminalField.RATE_LIMIT_ENABLED:
+            if value:
+                return None if record.get("limit") == "1" else {"limit": "1"}
+            # Switching the limit off sets both caps to 0, as the page does (T L2115-L2119).
+            off = {"limit": "0", "up_limit": "0", "down_limit": "0"}
+            return None if all(record.get(key) == token for key, token in off.items()) else off
+        if field in {TerminalField.UPLOAD_LIMIT, TerminalField.DOWNLOAD_LIMIT}:
+            if record.get("limit") != "1":
+                raise TerminalRefusal(RATE_LIMIT_IS_OFF)
+            key = "up_limit" if field is TerminalField.UPLOAD_LIMIT else "down_limit"
+            return None if record.get(key) == str(value) else {key: str(value)}
+        if record.service is None or record.offline:
+            raise TerminalRefusal(BINDING_NOT_EDITABLE)
+        if record.mac not in await self._present_terminals():
+            raise TerminalRefusal(BINDING_NOT_EDITABLE)
+        if field is TerminalField.FORCE_BINDING:
+            if record.get("bind_enable") != "on":
+                raise TerminalRefusal(BINDING_IS_OFF)
+            token = "on" if value else "off"
+            if record.get("force_bind_enable") == token:
+                return None
+            if (
+                value
+                and target_for_radios(saved_radio_ids(record), await self._fresh_targets(record))
+                is None
+            ):
+                raise TerminalRefusal(BINDING_TARGET_GONE)
+            return {"force_bind_enable": token}
+        saved = saved_radio_ids(record)
+        if field is TerminalField.BINDING_ENABLED:
+            if not value:
+                return None if record.get("bind_enable") == "off" else {"bind_enable": "off"}
+            if record.get("bind_enable") == "on":
+                return None
+            target = target_for_radios(saved, await self._fresh_targets(record))
+            if target is None:
+                raise TerminalRefusal(BINDING_TARGET_NEEDED)
+        else:
+            target = next(
+                (item for item in await self._fresh_targets(record) if item.token == value), None
+            )
+            if target is None:
+                raise TerminalRefusal(BINDING_TARGET_GONE)
+            if record.get("bind_enable") == "on" and frozenset(saved or ()) == frozenset(
+                target.radio_ids
+            ):
+                return None
+        return {"bind_enable": "on", "bind_radio_id": list(target.radio_ids)}
+
+    async def _set_terminal_schedule(
+        self,
+        record: HostRecord,
+        records: dict[str, HostRecord],
+        field: TerminalField,
+        value: bool | int | str,
+    ) -> None:
+        """Edit the allowed-time schedule of a record, through the time object that holds it.
+
+        The page makes a time object when a terminal first gets a schedule and links it to the
+        record, changes it in place, and unlinks and then deletes it for any time (T L2043-L2120,
+        L1217-L1236). Only an object that the terminal page made for this MAC and that no other
+        record links to is changed or deleted. Every step is sent once, and the sequence stops
+        at a step that fails.
+        """
+        ids = time_object_ids(record)
+        if ids is None or len(ids) > 1:
+            raise TerminalRefusal(SCHEDULE_UNREADABLE)
+        current_id = ids[0] if ids else None
+        current = None
+        if current_id is not None:
+            row = await self._read_time_object(current_id)
+            try:
+                current = parse_terminal_schedule(row)
+            except ValueError:
+                raise TerminalRefusal(SCHEDULE_UNREADABLE) from None
+            if not is_terminal_time_object(row, record.mac) or not time_object_is_exclusive(
+                current_id, record, records.values()
+            ):
+                raise TerminalRefusal(SCHEDULE_NOT_OWNED)
+        try:
+            target = change_terminal_schedule(current, field.value, value)
+        except ValueError as err:
+            # The text was checked before any read; this is what the schedule as read now forbids.
+            raise TerminalRefusal(str(err)) from None
+        if target == current:
+            return
+        _LOGGER.debug("Controller management request: terminal schedule (%s)", field.value)
+        if target is None:
+            link = host_update_request(record, host_update_para(record, time_obj_array=[]))
+            await self._request(link)
+            await self._follow_up(time_object_delete_request(current_id), PARTIAL_UNLINK, "unlink")
+        elif current_id is None:
+            link = host_update_para(record, time_obj_array=[])
+            created = await self._request(
+                time_object_add_request(terminal_time_object_para(record.mac, target))
+            )
+            new_id = new_time_object_id(created)
+            if new_id is None or any(
+                new_id in (time_object_ids(other) or ()) for other in records.values()
+            ):
+                raise Ac100TerminalPartialError(PARTIAL_LINK, "add")
+            link["time_obj_array"] = [new_id]
+            await self._follow_up(host_update_request(record, link), PARTIAL_LINK, "link")
+        else:
+            # The editor updates the object, then submits the host form (T L2043-L2101).
+            host = host_update_request(record, host_update_para(record))
+            await self._request(
+                time_object_set_request(current_id, terminal_time_object_para(record.mac, target))
+            )
+            await self._follow_up(host, PARTIAL_UPDATE, "update")
+
+    async def _follow_up(self, request: dict[str, Any], reason: str, stage: str) -> None:
+        """Send the next step of a series whose earlier step was acknowledged.
+
+        Whatever goes wrong with it, the series has partly happened: it is reported as such,
+        and neither this step nor an earlier one is sent again or undone.
+        """
+        try:
+            await self._request(request)
+        except Ac100Error as err:
+            raise Ac100TerminalPartialError(reason, stage) from err
+
+    async def async_disconnect_terminal(self, mac: str) -> None:
+        """Disconnect one connected terminal, once, without deleting its saved record.
+
+        The terminal page sends the MAC (T L753-L760). The client list is read again under the
+        shared lock, and nothing is sent unless the terminal is in it now. It may reconnect.
+        """
+        mac = _terminal_mac(mac)
+        async with self._lock:
+            self._ensure_open()
+            if (wire_mac := (await self._present_terminals()).get(mac)) is None:
+                raise Ac100TerminalError(NOT_CONNECTED)
+            _LOGGER.debug("Controller management request: terminal disconnect")
+            await self._request(host_disconnect_request(wire_mac))
+
+    async def async_clear_terminal(self, mac: str, *, disconnect: bool) -> None:
+        """Delete the saved record of one terminal and the schedule that only it uses.
+
+        ``disconnect`` says that the terminal is connected, which disconnects it too, and
+        otherwise that it is away; the host table and the client list are read again under
+        the shared lock, and both must agree. The page deletes the record first and then its
+        time object (T L1780-L1807, L2306-L2356). If the second step fails after the first
+        was acknowledged, that is an Ac100TerminalPartialError and nothing is retried. The
+        record cannot be restored, and neither can the schedule.
+        """
+        mac = _terminal_mac(mac)
+        async with self._lock:
+            self._ensure_open()
+            try:
+                await self._clear_terminal(mac, disconnect)
+            except TerminalRefusal as err:
+                raise Ac100TerminalError(str(err)) from None
+
+    async def _clear_terminal(self, mac: str, disconnect: bool) -> None:
+        records = await self._terminal_records()
+        if (record := records.get(mac)) is None:
+            raise TerminalRefusal(NO_RECORD)
+        if disconnect != (mac in await self._present_terminals()) or disconnect != record.online:
+            raise TerminalRefusal(NOT_CONNECTED if disconnect else STILL_CONNECTED)
+        ids = time_object_ids(record)
+        if ids is None or len(ids) > 1:
+            raise TerminalRefusal(SCHEDULE_UNREADABLE)
+        # A time object that the terminal does not own alone is not this action's to delete.
+        object_id = None
+        if ids:
+            row = await self._read_time_object(ids[0])
+            if is_terminal_time_object(row, mac) and time_object_is_exclusive(
+                ids[0], record, records.values()
+            ):
+                object_id = ids[0]
+        _LOGGER.debug("Controller management request: terminal record clear")
+        await self._request(host_delete_request(record))
+        if object_id is not None:
+            await self._follow_up(time_object_delete_request(object_id), PARTIAL_CLEAR, "clear")

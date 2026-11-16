@@ -66,8 +66,9 @@ async def async_remove_config_entry_device(
 ) -> bool:
     """Allow deleting only devices that the controller no longer reports.
 
-    A wireless network counts as reported while the latest SSID read lists it, and also while
-    that read failed, since its state is then unknown.
+    Retained terminal configuration also counts as reported. Terminal devices and monitored
+    wireless networks are kept when their optional source failed, since their state is unknown.
+    Removing a Home Assistant device never clears the controller's saved terminal record.
     """
     if entry.state is not ConfigEntryState.LOADED:
         return False
@@ -85,15 +86,28 @@ async def async_remove_config_entry_device(
         )
     ):
         return False
+    network_macs = {
+        value for kind, value in device.connections if kind == dr.CONNECTION_NETWORK_MAC
+    }
+    if (
+        data.terminals is None
+        and network_macs
+        and not any(domain == DOMAIN for domain, _ in device.identifiers)
+    ):
+        return False
+    configured = (
+        {item.mac for item in data.terminals.configurations}
+        if data.terminals is not None
+        else set()
+    )
     current = {
         mac,
         *(ap.mac for ap in data.aps),
         *(client.mac for client in data.clients),
+        *configured,
         *(wireless_service_device_key(mac, item.service_id) for item in services or ()),
     }
-    addresses = {value for domain, value in device.identifiers if domain == DOMAIN} | {
-        value for kind, value in device.connections if kind == dr.CONNECTION_NETWORK_MAC
-    }
+    addresses = {value for domain, value in device.identifiers if domain == DOMAIN} | network_macs
     return not addresses & current
 
 

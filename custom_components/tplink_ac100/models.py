@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from .monitoring import ConfigurationState, MonitoringState
+from .terminal import TerminalState
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +75,9 @@ class Client:
     """A currently observed client; AP name is not a reliable AP identifier.
 
     The speeds are the controller's current rates in KB/s; None when it reports none.
+    ``brand`` and ``operating_system`` are the controller's identification as sent, including
+    ``others`` (a category of its own); only blank and placeholder values are None.
+    ``ssid_encoding`` is the ``encode`` token as sent ("1" is UTF-8, "2" is GBK), None if absent.
     """
 
     entry_id: str
@@ -90,6 +94,7 @@ class Client:
     operating_system: str | None = None
     vlan_id: int | None = None
     connected_at: str | None = None
+    ssid_encoding: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +102,9 @@ class Snapshot:
     """A complete successful poll; absent clients were not observed in this poll.
 
     ``monitoring`` and ``configuration`` come from separate, slower optional reads and stay
-    None until one has succeeded.
+    None until one has succeeded. ``terminals`` is the saved record of every terminal, also of
+    those that are away, from the same poll's host table: None if that table could not be read,
+    which differs from an empty state. It never says who is connected.
     """
 
     controller: Controller
@@ -105,3 +112,4 @@ class Snapshot:
     clients: tuple[Client, ...]
     monitoring: MonitoringState | None = None
     configuration: ConfigurationState | None = None
+    terminals: TerminalState | None = None

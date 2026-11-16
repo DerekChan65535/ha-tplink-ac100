@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import STATE_HOME, STATE_NOT_HOME, STATE_UNAVAILABLE
+from homeassistant.const import STATE_HOME, STATE_NOT_HOME, STATE_UNAVAILABLE, EntityCategory
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import UpdateFailed
@@ -92,8 +92,26 @@ async def test_default_setup_is_read_only_and_unloads(hass, ac_entry, ac_api, en
     coordinator = await setup(hass, ac_entry)
     entities = er.async_entries_for_config_entry(entity_registry, ac_entry.entry_id)
     assert {entity.domain for entity in entities} >= {"sensor", "binary_sensor", "device_tracker"}
-    assert not any(entity.domain == "button" for entity in entities)
-    assert sum(entity.domain == "switch" for entity in entities) == 1
+    # Without management, the controller and its APs have no controls but the debug logging switch.
+    # The terminal controls are listed so that they can be found, but all of them are disabled.
+    controller_side = [entity for entity in entities if "_terminal_" not in entity.unique_id]
+    assert not any(entity.domain == "button" for entity in controller_side)
+    assert sum(entity.domain == "switch" for entity in controller_side) == 1
+    terminal_controls = [
+        entity
+        for entity in entities
+        if "_terminal_" in entity.unique_id and entity.entity_category is EntityCategory.CONFIG
+    ]
+    assert {entity.domain for entity in terminal_controls} == {
+        "button",
+        "number",
+        "select",
+        "switch",
+        "text",
+    }
+    assert all(
+        entity.disabled_by is er.RegistryEntryDisabler.INTEGRATION for entity in terminal_controls
+    )
     tracker = next(entity for entity in entities if entity.domain == "device_tracker")
     assert tracker.disabled_by is er.RegistryEntryDisabler.INTEGRATION
     ac_api.async_set_ap_led.assert_not_called()
@@ -147,7 +165,11 @@ async def test_opt_in_controls_and_safe_defaults(hass, ac_entry, ac_api, entity_
     hass.config_entries.async_update_entry(ac_entry, options={CONF_ENABLE_CONTROL: True})
     await setup(hass, ac_entry)
     entities = er.async_entries_for_config_entry(entity_registry, ac_entry.entry_id)
-    buttons = [entity for entity in entities if entity.domain == "button"]
+    buttons = [
+        entity
+        for entity in entities
+        if entity.domain == "button" and "_terminal_" not in entity.unique_id
+    ]
     assert len(buttons) == 3  # controller reboot, save configuration and the AP's reboot
     assert all(entity.disabled_by is er.RegistryEntryDisabler.INTEGRATION for entity in buttons)
     switch = next(

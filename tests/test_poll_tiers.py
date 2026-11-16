@@ -4,7 +4,7 @@ from dataclasses import replace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant.common import MockConfigEntry
 
@@ -14,6 +14,8 @@ from custom_components.tplink_ac100.api import (
     Ac100ConnectionError,
     Ac100SessionBusyError,
     Ac100SessionExpiredError,
+    Ac100TerminalError,
+    Ac100TerminalPartialError,
 )
 from custom_components.tplink_ac100.const import DOMAIN
 from custom_components.tplink_ac100.coordinator import CONFIGURATION_CONTEXT
@@ -159,3 +161,44 @@ async def test_management_action_refreshes_both_optional_reads(hass, tier_setup)
     action.assert_awaited_once_with()
     assert api.async_get_monitoring.await_count == 2
     api.async_get_configuration.assert_awaited_once_with()
+
+
+@pytest.mark.parametrize(
+    ("error", "translation_key"),
+    [
+        (Ac100TerminalError("The terminal state changed"), "terminal_action_refused"),
+        (
+            Ac100TerminalPartialError(
+                "The schedule was created but not linked", "schedule_created"
+            ),
+            "terminal_action_partial",
+        ),
+    ],
+)
+async def test_terminal_failure_is_visible_and_forces_next_full_read_without_replay(
+    hass, tier_setup, error, translation_key
+):
+    from custom_components.tplink_ac100.const import CONF_ENABLE_CONTROL
+
+    coordinator, api, clock, _ = tier_setup
+    use_settings(coordinator)
+    hass.config_entries.async_update_entry(
+        coordinator.config_entry, options={CONF_ENABLE_CONTROL: True}
+    )
+    action = AsyncMock(side_effect=error)
+    reads = api.async_get_snapshot.await_count
+    with pytest.raises(HomeAssistantError) as raised:
+        await coordinator.async_control(action)
+    assert raised.value.translation_key == translation_key
+    assert raised.value.translation_placeholders == {"reason": str(error)}
+    assert coordinator.last_update_success
+    assert coordinator._refresh_all
+    action.assert_awaited_once_with()
+    assert api.async_get_snapshot.await_count == reads
+    api.async_get_configuration.assert_not_awaited()
+    clock[0] = 130
+    await coordinator.async_refresh()
+    assert api.async_get_snapshot.await_count == reads + 1
+    assert api.async_get_monitoring.await_count == 2
+    api.async_get_configuration.assert_awaited_once_with()
+    assert not coordinator._refresh_all

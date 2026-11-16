@@ -8,6 +8,8 @@ from .const import CONF_ENABLE_CONTROL
 from .control_entity import Ac100SettingControl, invalid_value
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
 from .management import ALIAS_FIELD, ALIAS_MAX_LENGTH, ALIAS_RULE, alias_is_valid
+from .terminal_controls import add_terminal_texts
+from .terminal_schedule_entities import add_terminal_schedule_texts
 
 
 async def async_setup_entry(
@@ -15,7 +17,9 @@ async def async_setup_entry(
     entry: Ac100ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Add the controller's name as a text entity."""
+    """Add the controller's name as a text entity, and a terminal's name on the controller."""
+    add_terminal_texts(entry, async_add_entities)
+    add_terminal_schedule_texts(entry, async_add_entities)
     if entry.options.get(CONF_ENABLE_CONTROL, False):
         async_add_entities([Ac100DeviceNameText(entry.runtime_data)])
 

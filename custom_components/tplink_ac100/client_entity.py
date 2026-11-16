@@ -17,8 +17,8 @@ def known_client_macs(coordinator: Ac100Coordinator) -> set[str]:
     """Return the MACs of the clients that have a device: the current ones and restored ones.
 
     A tracker's unique ID is its client's MAC, and its registry entry outlives the client's
-    visit. A client that is away keeps its device and entities through these entries. The
-    controller and its APs have devices of their own and are never clients.
+    visit. Retained controller configuration also identifies clients that are away, but never
+    makes them present. The controller and its APs have devices of their own and are not clients.
     """
     snapshot = coordinator.data
     registry = er.async_get(coordinator.hass)
@@ -27,8 +27,13 @@ def known_client_macs(coordinator: Ac100Coordinator) -> set[str]:
         for entity in er.async_entries_for_config_entry(registry, coordinator.entry.entry_id)
         if entity.domain == "device_tracker" and _MAC.fullmatch(entity.unique_id)
     }
+    configured = (
+        {item.mac for item in snapshot.terminals.configurations}
+        if snapshot.terminals is not None
+        else set()
+    )
     infrastructure = {snapshot.controller.mac, *(ap.mac for ap in snapshot.aps)}
-    return ({client.mac for client in snapshot.clients} | restored) - infrastructure
+    return ({client.mac for client in snapshot.clients} | configured | restored) - infrastructure
 
 
 class Ac100ClientEntity(CoordinatorEntity[Ac100Coordinator]):

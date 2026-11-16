@@ -26,6 +26,8 @@ from .api import (
     Ac100ProtocolError,
     Ac100SessionBusyError,
     Ac100SessionExpiredError,
+    Ac100TerminalError,
+    Ac100TerminalPartialError,
     Ac100UnsafeLedError,
 )
 from .const import (
@@ -177,6 +179,20 @@ class Ac100Coordinator(DataUpdateCoordinator[Snapshot]):
         except Ac100SessionBusyError as err:
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="session_busy"
+            ) from err
+        except Ac100TerminalPartialError as err:
+            self._refresh_all = True
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="terminal_action_partial",
+                translation_placeholders={"reason": str(err)},
+            ) from err
+        except Ac100TerminalError as err:
+            self._refresh_all = True
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="terminal_action_refused",
+                translation_placeholders={"reason": str(err)},
             ) from err
         except Ac100UnsafeLedError as err:
             raise HomeAssistantError(

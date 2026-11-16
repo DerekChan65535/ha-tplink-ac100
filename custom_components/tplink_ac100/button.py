@@ -10,11 +10,13 @@ from .api import Ac100SaveTimeoutError
 from .const import CONF_ENABLE_CONTROL, DOMAIN
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
 from .entity import Ac100Entity
+from .terminal_controls import add_terminal_buttons
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: Ac100ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
+    add_terminal_buttons(entry, async_add_entities)
     if not entry.options.get(CONF_ENABLE_CONTROL, False):
         return
     coordinator = entry.runtime_data

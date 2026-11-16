@@ -1,0 +1,94 @@
+{
+ "error_code": 0,
+ "apmng_wserv": {
+  "count": {
+   "radio_bind_list": 6
+  },
+  "radio_bind_list": [
+   {
+    "radio_bind_list_0": {
+     "bind_status": "1",
+     "ap_type": "ap",
+     "freq_name": "2.4GHz",
+     "bind_vlan_type": "single_vlan",
+     "freq_unit": "1",
+     "vlan_pool_id": "",
+     "radio_id": "1",
+     "freq_mode": "6",
+     "vlan_id": "0",
+     "ap_name": "Example%20AP%201"
+    }
+   },
+   {
+    "radio_bind_list_1": {
+     "bind_status": "1",
+     "ap_type": "ap",
+     "freq_name": "5GHz",
+     "bind_vlan_type": "single_vlan",
+     "freq_unit": "2",
+     "vlan_pool_id": "",
+     "radio_id": "2",
+     "freq_mode": "11",
+     "vlan_id": "0",
+     "ap_name": "Example%20AP%201"
+    }
+   },
+   {
+    "radio_bind_list_2": {
+     "bind_status": "1",
+     "ap_type": "ap",
+     "freq_name": "2.4GHz",
+     "bind_vlan_type": "single_vlan",
+     "freq_unit": "1",
+     "vlan_pool_id": "",
+     "radio_id": "33",
+     "freq_mode": "6",
+     "vlan_id": "0",
+     "ap_name": "Example%20AP%203"
+    }
+   },
+   {
+    "radio_bind_list_3": {
+     "bind_status": "1",
+     "ap_type": "ap",
+     "freq_name": "5GHz",
+     "bind_vlan_type": "single_vlan",
+     "freq_unit": "2",
+     "vlan_pool_id": "",
+     "radio_id": "34",
+     "freq_mode": "11",
+     "vlan_id": "0",
+     "ap_name": "Example%20AP%203"
+    }
+   },
+   {
+    "radio_bind_list_4": {
+     "bind_status": "1",
+     "ap_type": "ap",
+     "freq_name": "2.4GHz",
+     "bind_vlan_type": "single_vlan",
+     "freq_unit": "1",
+     "vlan_pool_id": "",
+     "radio_id": "49",
+     "freq_mode": "6",
+     "vlan_id": "0",
+     "ap_name": "Example%20AP%204"
+    }
+   },
+   {
+    "radio_bind_list_5": {
+     "bind_status": "1",
+     "ap_type": "ap",
+     "freq_name": "2.4GHz",
+     "bind_vlan_type": "single_vlan",
+     "freq_unit": "1",
+     "vlan_pool_id": "",
+     "radio_id": "81",
+     "freq_mode": "6",
+     "vlan_id": "0",
+     "ap_name": "Example%20AP%205"
+    }
+   }
+  ]
+ }
+}

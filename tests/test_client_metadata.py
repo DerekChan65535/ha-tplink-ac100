@@ -38,11 +38,30 @@ def test_client_details_are_projected_without_extra_fields():
     )
 
 
-@pytest.mark.parametrize("value", [None, "", "---", "others", "UNKNOWN", 4, "x" * 65])
+@pytest.mark.parametrize("value", [None, "", "---", "UNKNOWN", 4, "x" * 65])
 def test_unknown_client_identification_is_not_a_vendor_or_os(value):
     client = _parse_client(client_row(brand=value, operating_system=value))
     assert client.brand is None
     assert client.operating_system is None
+
+
+@pytest.mark.parametrize("value", ["others", "Others"])
+def test_others_is_a_category_of_the_controllers_identification_list(value):
+    """The identification page lists Others as a vendor and OS of its own, not as a gap."""
+    client = _parse_client(client_row(brand=value, operating_system=value))
+    assert client.brand == value
+    assert client.operating_system == value
+
+
+@pytest.mark.parametrize(("value", "expected"), [("1", "1"), ("2", "2"), (" 2 ", "2"), ("7", "7")])
+def test_ssid_encoding_is_the_token_as_the_controller_sends_it(value, expected):
+    assert _parse_client(client_row(encode=value)).ssid_encoding == expected
+
+
+@pytest.mark.parametrize("value", [None, "", "  ", 1, ["1"], "x" * 9])
+def test_a_missing_or_unreadable_ssid_encoding_is_none(value):
+    assert _parse_client(client_row(encode=value)).ssid_encoding is None
+    assert _parse_client(client_row()).ssid_encoding is None
 
 
 @pytest.mark.parametrize("value", [None, "0", "---", "4095", "-1", "1.5", True])

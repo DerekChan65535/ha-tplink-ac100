@@ -8,10 +8,13 @@ service is required.
 [Releases](https://github.com/DerekChan65535/ha-tplink-ac100/releases) · [Report an issue](https://github.com/DerekChan65535/ha-tplink-ac100/issues) · [Security](SECURITY.md)
 
 > **Early release.** This is not an official TP-LINK or Home Assistant integration.
-> Polling and the optional controls have been checked on one controller with the
-> hardware/firmware listed below; every control except reboot was changed, read back and
-> restored there. Reboot actions have **not** been tested on live hardware.
-> Do not test reboot actions on a production Wi-Fi network.
+> Polling and the non-terminal optional controls have been checked on one controller with the
+> hardware/firmware listed below; see [Controls](#controls) for the exact tested scope.
+> Reboot actions have **not** been tested on live hardware, and neither have
+> the **terminal controls** (a Wi-Fi client's name, rate limit, AP binding, allowed times,
+> disconnect and clearing its saved record): they follow the web pages' source and are tested
+> only against a simulated controller. Do not test reboot or terminal actions on a production
+> Wi-Fi network.
 
 ## Scope and compatibility
 
@@ -19,11 +22,12 @@ service is required.
 | --- | --- |
 | Home Assistant | Requires **2026.11.1 or newer**; development/test target: 2026.11.1. Older versions are not supported. |
 | Controller | Live-checked: **TL-AC100 hardware 5.0**, firmware **1.0.5 Build 250814 Rel.82234n** (read-only polling in native HA, one AP LED cycle). Other versions are unverified. |
-| Monitoring | Controller, AP, radio, port, interface, firmware and client state, with each client's own readings and Wi-Fi speeds; controller and radio settings as disabled-by-default readings. |
+| Monitoring | Controller, AP, radio, port, interface, firmware and client state, with each client's own readings, Wi-Fi speeds and saved configuration (limits, AP binding, allowed times); controller and radio settings as disabled-by-default readings. |
 | Wireless networks (SSIDs) | Optional device per SSID; off by default because the controller returns Wi-Fi keys with the SSID list (they are dropped in memory). |
 | Controls | Optional, off by default: AP LED, AP radio, SSID enable/broadcast/isolation/IGMP, band steering, load balancing, broadcast storm suppression, multicast, controller name, Save configuration. Live-tested with restore on the hardware above; see [Controls](#controls). |
+| Terminal controls | Optional, off by default, listed on every client's page but disabled: name on the controller, rate limit and caps, AP binding and target, allowed times, disconnect, and clearing the saved record. **Not tested on live hardware**; see [Terminal controls](#terminal-controls). |
 | AP/controller reboot | Optional, disruptive control; **not tested on live hardware**. |
-| Not included | Firmware installation, factory reset, configuration/certificate files, accounts, portals and authentication lists, network interfaces, DHCP and routing changes, wireless network mode. See [Not included](#not-included). |
+| Not included | Firmware installation, factory reset, configuration/certificate files, accounts, portals and authentication lists, network interfaces, DHCP and routing changes, wireless network mode, a per-terminal VLAN, vendor override or permanent block. See [Not included](#not-included). |
 | Debug level logging | Native diagnostic switch; off by default, independent of device management. |
 | Default polling | Core telemetry **60 seconds**; status **5 minutes**; settings **15 minutes**, only while a settings entity is enabled. |
 
@@ -58,9 +62,11 @@ Native readings, not an embedded controller web panel:
   has the same name, so give each AP a unique name in the controller. A client without a reported speed adds nothing, and a
   sensor is unknown when none of its clients reports one. Each client's page shows its own
   speeds as sensors, and client trackers keep them as attributes.
-- Clients: a device for each client, with connectivity, signal strength, link rate, speeds,
-  addresses, SSID, access point, band, VLAN, vendor, operating system and connection time.
-  These readings are enabled by default; see [Client pages](#client-pages).
+- Clients: a device for each current or retained client, with connectivity, signal strength,
+  link rate, speeds, addresses, SSID and encoding, access point, band and radio unit, VLAN,
+  vendor, operating system and connection time. The same page shows its saved name, rate limits,
+  AP binding and allowed-time schedule, also while it is away. These readings are enabled by
+  default; see [Client pages](#client-pages).
 - Settings, disabled by default: 70 controller settings (roaming, band steering, load
   balancing, radio optimization, multicast, time, session limits and AP management) and 21
   configured values per AP radio (mode, channel width, channel, power level 1-10, client
@@ -71,10 +77,26 @@ Native readings, not an embedded controller web panel:
   statistics. They are disabled by default only on new installations.
 
 Polling shares the existing single management session. Every 60-second core poll also
-reads `host_management.host_info` for the client speeds, including when no client is
-connected. It adds one request per 10 listed hosts, which can include departed hosts,
-with a limit of 256 rows (up to 26 requests). A rejected, malformed or oversized table
-makes only the speeds unknown. Connection and session errors still fail the poll.
+reads `host_management.host_info` for client speeds and saved terminal configuration, including
+when no client is connected. It adds one request per 10 listed hosts, which can include departed
+hosts, with a limit of 256 rows (up to 26 requests). A readable host table also adds one unpaged,
+credential-free `apmng_wserv.radio_bind_list` read per distinct nonnegative saved service ID, at
+most one all-radio read to identify unresolved saved bindings, and one `time_mngt.time_obj` read
+per distinct singly linked schedule. All distinct references within the accepted host table are
+read. Radio lists must declare an exact count matching the returned rows; incomplete lists are
+unreadable, not truncated choices. Their raw-row guard is 1368, including radio templates.
+
+For `S` service IDs, `T` linked schedules and optional all-radio lookup `F` (0 or 1), these add
+`S + F + T` logical requests per core poll. The 256-host guard gives a conservative upper bound
+of **513 extra requests**, or **357** with the source's 100-service maximum. These are worst-case
+bounds, not expected sizes or verified latency; existing session-renewal reads are excluded.
+There is no cache or TTL, and the entities make no reads of their own. A rejected, malformed or
+oversized host table makes the speeds unknown and the saved configuration unavailable. An
+unreadable radio list or time object affects its own readings and controls, not presence. The
+first transport failure on either stops the dependent reads and discards all radio-list/time-object
+results for that poll, while retaining fresh core, client and host data. It does not start
+per-source retries. Core or host-table transport failures and global session/sign-in failures
+still fail the poll.
 Status, port, interface and firmware reads run every 5 minutes. Settings
 are read every 15 minutes, and **only while at least one settings entity is enabled**.
 The slower reads are staggered, with no burst to catch up after downtime. A failed
@@ -151,10 +173,11 @@ link all of its clients. A client that roams moves to its new AP on the next upd
 after the upgrade.
 
 Every client has a device of its own, identified by the client's MAC address. Its device ID,
-its entity IDs, and any name, area or label that you set are kept. A name that the controller
-reports updates the default device name. An unnamed or absent client keeps its earlier known
-name; the MAC address is used only when no name is known. The client trackers remain disabled
-by default.
+its existing entity IDs, and any name, area or label that you set are kept. A current name from
+the controller updates the default device name; otherwise the saved terminal name is used,
+then its earlier known name, then the MAC address. A name that you set in HA is never overwritten.
+A saved record can create or retain an offline client's page, but never makes the client present
+or attaches it to an AP. The client trackers remain disabled by default.
 
 The controller device is named by its model (`TL-AC100`), APs without a name use their
 model plus the last six MAC digits, and APs with duplicate names get those digits as a
@@ -162,49 +185,120 @@ suffix. Existing entity IDs and user-assigned device names are not changed. AP f
 and hardware versions are filled in when the controller reports them. The device page
 links to the AC website for troubleshooting: disable the HA entry before signing in there.
 An AP or client device that the controller no longer reports can be deleted from its
-device page; the controller and currently reported devices cannot.
+device page; the controller and currently reported devices cannot. A saved terminal record also
+prevents removal of its HA device. Clearing that controller record is a separate, optional action
+below; removing an HA device does not erase anything on the controller.
 
 ### Client pages
 
 Each client's page shows the readings below. They are read-only and **enabled by default**.
-They need no extra request, because the 60-second poll already reads the client list and the
-host table. You do not need the client tracker to see them. That is 14 entities for each
-client.
+You do not need the client tracker to see them. The entities use the shared 60-second poll;
+no entity makes a request. Each known client has 16 connection readings and 18 saved-configuration
+readings (34 enabled entities), plus the optional tracker and 26 disabled terminal controls.
+Disable the readings that you do not need, especially on a large network.
 
-| Reading | Unit | Shows |
+| Connection reading | Unit | Shows |
 | --- | --- | --- |
 | Connectivity | | On while the controller lists the client, off while it is away. |
 | Signal strength | dBm | The strongest signal among the client's radios. |
 | Link rate | Mbit/s | The highest negotiated Wi-Fi rate among its radios. This is the link rate, not traffic. |
 | Wi-Fi upload speed, Wi-Fi download speed | kB/s | The client's current traffic, as the controller reports it. |
 | IPv4 address, IPv6 address | | The addresses that the controller reports. |
-| SSID, Access point, Wi-Fi band | | The wireless network, the AP name exactly as the controller reports it, and the band, such as `2.4GHz`. |
+| SSID, SSID encoding | | The wireless network and its encoding: `UTF-8` or `GBK` when reported. |
+| Access point, Wi-Fi band, Radio unit | | The current AP name, band such as `5GHz`, and radio such as `2 (5GHz)`. These are not the saved binding. |
 | VLAN ID | | The client's VLAN, from 1 to 4094. |
-| Vendor, Operating system | | How the controller identifies the client. It is often unknown. |
-| Connection time | | When the client connected: the date and time that the controller's web UI shows, in the controller's local time. |
+| Vendor, Operating system | | How the controller identifies the client, including its `Others` category. |
+| Connection time | | The connection date and time from the controller's web UI, in the controller's local time. |
 
 Connectivity, signal strength, link rate and the speeds are normal sensors. The other readings
 are diagnostic sensors, which Home Assistant lists under **Diagnostic** on the device page.
 
+| Saved-configuration reading | Shows |
+| --- | --- |
+| Name on controller | The saved terminal name, separate from HA's device name. |
+| Rate limiting enabled; Upload limit; Download limit | The saved rate-limit flag and caps in kB/s. Zero means unlimited, not unknown. |
+| AP binding enabled; Forced AP binding; Bound access point; Bound radio | The saved binding, not the current AP. A target that cannot be identified stays unknown. |
+| Allowed-time mode | Any time, Manual or Calendar, only when the saved schedule can be read. |
+| Allowed weekdays; Allowed time windows | The manual schedule, unknown in another mode. |
+| Allowed times: Monday through Sunday | The calendar's allowed hours for each day, unknown in another mode. `none` means that day has no allowed hours. |
+
 A value that the controller does not report stays **unknown**. Placeholder addresses (`---`,
 `0.0.0.0` and `::`) are unknown. VLAN 0 is unknown, as in the controller's web UI; it is not
-VLAN 1. A vendor or system that the controller reports as `others` or `---` is unknown. Known
-names, such as `apple`, are shown as Apple, and any other text is shown as the controller
-reports it. The connection time has no time zone, so it is text and not a timestamp. There is
-no MAC address reading, because the MAC address is already the device's connection.
+VLAN 1. A vendor or system reported as `others` is shown as **Others**; `---` or a missing value
+is unknown. Known names, such as `apple`, are shown as Apple; other text is shown as reported.
+The connection time has no time zone, so it is text and not a timestamp. There is no MAC address
+reading because the MAC address is already the device's connection.
 
-While a client is away, its readings are unavailable and its connectivity is off. After a failed
-poll, all readings are unavailable, connectivity included.
+While a client is away, its connection readings are unavailable and connectivity is off.
+Its saved-configuration readings remain available while the controller retains a readable record.
+An absent or unreadable record makes them unavailable; a missing field stays unknown. No saved
+value is substituted for current presence, AP, VLAN, signal or speed. After a failed poll all
+readings are unavailable, connectivity included.
 
-The **client tracker** is a separate, optional entity for presence (home or away). It stays
-disabled by default and keeps its entity ID. Enable it only if you want a presence entity; the
-readings above do not need it.
+The **client tracker** is a separate, optional presence entity (home or away). It stays disabled
+by default and keeps its entity ID. The readings above do not need it.
 
-Each reading is a normal entity, so Home Assistant records its history by default, and
-long-term statistics for the signal strength, link rate and speeds. Exclude the entities that
-you do not want recorded, or disable them: a reading that you disable stays disabled after a
-restart. The per-radio details that the signal strength and link rate sensors carry in the
-`radios` attribute are not stored by the recorder.
+Home Assistant records enabled entities' histories by default, and long-term statistics for the
+signal strength, link rate and speeds. Saved limits and schedules have no measurement statistics
+or large attributes. Exclude the entities that you do not want recorded, or disable them: a
+reading that you disable stays disabled after a restart. The per-radio `radios` attribute of the
+signal strength and link rate sensors is not stored by the recorder. Saved names, bindings and
+allowed hours can still reveal sensitive information; review history and external-service access.
+
+### Terminal controls
+
+These native controls belong to the **same MAC-identified client device**, not to a second
+terminal device. They are always listed, **disabled by default**, and unavailable unless
+**Enable device control** is on and their source is safe and readable. Enable only the controls
+you need. These controls have **not been tested on live hardware**.
+
+| Control | Effect and conditions |
+| --- | --- |
+| Name on controller | Renames the controller's saved record, not HA's user-assigned name. Needs a saved record; while the host table is unreadable a connected client's name can be offered, but the API must first read the record. Names must be nonblank visible text of at most 64 UTF-8 bytes. |
+| Rate limiting; Upload limit; Download limit | Caps are editable only while limiting is on: integer `0` (unlimited) or `15`–`125000` kB/s. Turning limiting off also zeros both caps, as the terminal page does; turning it back on does not restore them. |
+| AP binding; AP binding target; Forced AP binding | Only for a connected terminal with readable service-radio targets. Choosing a target also enables binding. The binding switch refuses to turn on without a resolvable saved target: choose the target first. Forced binding is editable only while binding is on. Targets name an AP and radio, or all its radios. Each action resolves the AP MAC and radio unit again; no AP or radio is guessed. |
+| Allowed-time mode and fields | Changes permitted network-use hours; see below. Not a scheduler for sending HA actions. |
+| Disconnect | Disconnects a currently connected terminal. **It can reconnect immediately**; this is not a block. |
+| Disconnect and clear saved record | For a connected terminal: deletes its saved name, limits, binding and owned schedule, following the controller's terminal action. |
+| Clear offline saved record | Only while the terminal is away and its saved record exists. Deletes that record and its owned schedule, not its HA device. |
+
+Every action re-reads and checks the record, connection and required binding or schedule under
+the shared session lock before sending. A changed or ambiguous target, conflicting duplicate
+records, missing fields that cannot be preserved, or an unreadable/shared schedule can cause
+refusal. The integration never selects a replacement target, guesses defaults, overwrites a
+shared schedule, or silently retries. Terminal form edits preserve unrelated values from the
+fresh record; a rename uses only the name field.
+
+Writes apply immediately to the running configuration. There is no separate HA Apply button,
+no optimistic state update, no automatic Save configuration, no replay after a timeout, and no
+rollback of a partial operation. Successful actions refresh the shared snapshot. Refused or
+failed actions request a read on the next scheduled update; they do not trigger a login/read
+burst. If an action partly succeeds, HA reports where it stopped: **check the controller before
+trying again**. Saving configuration remains a separate controller-wide action.
+
+**Allowed times** use the controller's local clock, with no HA time-zone conversion:
+
+- **Any time** means no schedule object. Choosing it unlinks and deletes the terminal's owned
+  schedule. It does not mean an unreadable schedule is unrestricted.
+- **Manual** uses seven weekday switches and up to 12 comma-separated windows, for example
+  `08:30-12:00, 13:00-18:00`. At least one day and one window must remain. `24:00` is allowed
+  only as an end; overnight windows must be split at midnight. Seconds must be zero.
+- **Calendar** uses one text field per weekday with whole-hour windows, for example
+  `08:00-12:00, 13:00-18:00`. A blank day permits no hours that day, but at least one hour
+  must remain in the week. Ranges are sorted and joined where they touch or overlap.
+- Starting from Any time, Manual begins with all weekdays and `00:00-24:00`, as in the
+  controller's page. Calendar also starts with all hours as an explicit HA safety policy.
+  The cached page source resets the calendar to empty and rejects an empty save, but the picker
+  implementation is unavailable, so the exact initial GUI default is **unverified**. HA does
+  not claim to copy that default. Choosing a mode alone therefore blocks nothing.
+- Switching Manual to Calendar or back preserves the exact allowed hours or refuses. A
+  minute-level manual window cannot become an hourly calendar; a calendar with different
+  windows on different active days cannot become one manual schedule. Choose Any time first
+  only if you intend to remove the old schedule and start again.
+
+These are the controller's terminal functions, not per-terminal VLAN editing, vendor/OS
+overrides, a permanent block or DHCP reservations. Clearing a saved record is not removing an
+HA device and does not prevent reconnection. HA device deletion remains a separate operation.
 
 ## Not included
 
@@ -222,6 +316,9 @@ undone, or would expose credentials:
 - Wireless network mode and immediate radio optimization ("tune now"): they reconfigure every
   AP radio at once.
 - Mesh, cloud management and time settings, and radio settings other than on/off.
+- Per-terminal VLAN editing, vendor/OS overrides, permanent block, DHCP reservations and
+  global terminal-identification settings. The terminal pages do not provide these setters;
+  they are not inferred from similarly named settings elsewhere.
 
 Read-only values of many of these remain available as disabled-by-default settings readings.
 

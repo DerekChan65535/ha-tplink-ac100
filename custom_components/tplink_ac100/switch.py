@@ -20,6 +20,8 @@ from .debug_logging import (
 from .entity import Ac100Entity, band_label
 from .management import writable_fields
 from .models import ApRadio
+from .terminal_controls import add_terminal_switches
+from .terminal_schedule_entities import add_terminal_schedule_switches
 from .wireless_service import add_wireless_service_switches
 
 
@@ -28,6 +30,8 @@ async def async_setup_entry(
 ) -> None:
     coordinator = entry.runtime_data
     async_add_entities([Ac100DebugLoggingSwitch(coordinator, async_get_debug_logging(hass))])
+    add_terminal_switches(entry, async_add_entities)
+    add_terminal_schedule_switches(entry, async_add_entities)
     if not entry.options.get(CONF_ENABLE_CONTROL, False):
         return
     add_wireless_service_switches(entry, async_add_entities)

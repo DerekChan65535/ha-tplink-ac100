@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.2.3b1] - 2026-11-16
+
+**Beta release.** New terminal controls are disabled by default and have not been exercised on
+real hardware. Enable them only deliberately on a suitable test terminal. This release does not
+claim firmware validation of disconnect, clear, binding or allowed-time enforcement.
+
+### Added
+
+- Each client's existing MAC-identified device now shows the controller's saved name, rate-limit
+  state and caps, AP binding and forced-binding state, and allowed-time mode and schedule. These
+  diagnostic readings are enabled by default and remain readable for a retained offline record;
+  they never stand in for current presence, AP, VLAN or traffic. Unknown data stays unknown.
+- Native terminal controls are listed on every client page, disabled by default and unavailable
+  without management opt-in and the required safe source: controller-side name, rate limiting,
+  upload/download caps, AP binding/target/forced binding, allowed-time mode with manual weekdays
+  and windows or a weekly hourly calendar, disconnect, disconnect and clear, and offline clear.
+  They follow the terminal pages, but **have not been tested on live hardware**. A disconnect is
+  not a permanent block; clearing the saved record is not deleting an HA device.
+- SSID encoding (`UTF-8`/`GBK`) and radio unit, for example `2 (5GHz)`, are enabled connection
+  readings. Vendor and operating system category `others` is now shown as **Others**, matching
+  the controller; a missing value or `---` remains unknown.
+- Fake-controller protocol and native HA tests cover saved and offline records, unknown fields,
+  stable identities, disabled defaults and opt-in, field validation, binding targets, allowed-time
+  conversion, partial failures, no write replay, no optimistic state and no automatic save.
+
+### Changed
+
+- The shared core poll keeps allow-listed saved terminal configuration and reads credential-free
+  radio bindings and linked time objects within fixed limits. Entities do not poll independently.
+  A retained record can create an offline client page without marking it present or linking it
+  to an AP. A saved controller name is preferred over an old registry name when no current name
+  exists; user-assigned HA names, existing device/entity identities and user settings are kept.
+- HA device removal is refused while the controller still retains a saved terminal record.
+  Controller-side clear actions and HA device removal remain separate.
+- Terminal actions recheck fresh state and identity, preserve unrelated form fields and refuse
+  unsafe or ambiguous records/targets/schedules. There is no automatic write replay, optimistic
+  update, save or rollback. A partial operation is reported explicitly; failures are reread on
+  the next scheduled update rather than causing a login/read burst.
+
 ## [0.2.2] - 2026-11-16
 
 ### Added

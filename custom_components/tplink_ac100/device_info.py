@@ -14,6 +14,7 @@ from .const import DOMAIN
 from .coordinator import Ac100Coordinator
 from .models import AccessPoint, Client
 from .monitoring import ApFirmware
+from .terminal import TerminalConfiguration
 
 MANUFACTURER = "TP-Link"
 
@@ -69,6 +70,14 @@ def current_client(coordinator: Ac100Coordinator, mac: str) -> Client | None:
     return next((client for client in coordinator.data.clients if client.mac == mac), None)
 
 
+def terminal_configuration(coordinator: Ac100Coordinator, mac: str) -> TerminalConfiguration | None:
+    """Return the latest saved configuration, which does not establish a client's presence."""
+    terminals = coordinator.data.terminals
+    if terminals is None:
+        return None
+    return next((item for item in terminals.configurations if item.mac == mac), None)
+
+
 def client_device_info(coordinator: Ac100Coordinator, mac: str) -> DeviceInfo:
     """Describe a client's device behind the AP named by the controller.
 
@@ -102,12 +111,15 @@ def _client_name(
 ) -> str | UndefinedType:
     """Return the name for a client's device, or UNDEFINED to leave an existing name as it is.
 
-    A client that the controller names gives its device that name. The MAC names a device only
-    when nothing better is known: an away or unnamed client keeps the name its device has, then
-    the name a tracker of version 0.2.0 kept, and only then is called by its MAC.
+    A name from the current association wins, followed by saved controller configuration even
+    while the client is away. Otherwise the device keeps its given name, then a name kept by a
+    tracker of version 0.2.0, and only then is called by its MAC.
     """
-    if client is not None and (client.name or "").strip():
+    if client is not None and _is_given_name(client.name, mac):
         return client.name
+    configured = terminal_configuration(coordinator, mac)
+    if configured is not None and _is_given_name(configured.name, mac):
+        return configured.name
     device = dr.async_get(coordinator.hass).async_get_device_by_connection(
         (CONNECTION_NETWORK_MAC, mac), coordinator.entry.entry_id
     )
@@ -127,7 +139,7 @@ def _client_name(
 
 def _is_given_name(name: str | None, mac: str) -> bool:
     """Return whether a name says more than the MAC address."""
-    return bool(name and name.strip() and name != mac)
+    return bool(name and name.strip() and name.strip().lower().replace("-", ":") != mac)
 
 
 def _mac_suffix(mac: str) -> str:

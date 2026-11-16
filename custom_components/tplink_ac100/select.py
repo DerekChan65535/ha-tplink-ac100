@@ -9,6 +9,8 @@ from .control_entity import Ac100SettingControl
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
 from .management import select_options, writable_fields
 from .monitoring import ConfigField
+from .terminal_controls import add_terminal_selects
+from .terminal_schedule_entities import add_terminal_schedule_selects
 
 
 async def async_setup_entry(
@@ -17,6 +19,8 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add a select for every setting for which a web page of the controller offers a choice."""
+    add_terminal_selects(entry, async_add_entities)
+    add_terminal_schedule_selects(entry, async_add_entities)
     if not entry.options.get(CONF_ENABLE_CONTROL, False):
         return
     coordinator = entry.runtime_data

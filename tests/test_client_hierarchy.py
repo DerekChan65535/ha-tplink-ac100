@@ -15,6 +15,7 @@ from custom_components.tplink_ac100.client_entity import Ac100ClientEntity, know
 from custom_components.tplink_ac100.const import DOMAIN
 from custom_components.tplink_ac100.models import AccessPoint, Client, Controller, Snapshot
 from custom_components.tplink_ac100.monitoring import ConfigurationState, MonitoringState
+from custom_components.tplink_ac100.terminal import TerminalConfiguration, TerminalState
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -55,6 +56,7 @@ def ac_snapshot() -> Snapshot:
             wifi_client(2, "Study"),
             wifi_client(3, "Garage"),
         ),
+        terminals=TerminalState(),
     )
 
 
@@ -562,3 +564,124 @@ async def test_client_entities_share_the_clients_device_and_need_a_current_clien
     api.async_get_snapshot.side_effect = Ac100ConnectionError("Unavailable")
     await coordinator.async_refresh()
     assert not other.available
+
+
+async def test_saved_offline_client_keeps_its_identity_without_becoming_present(
+    hass, api, ac_snapshot, device_registry
+):
+    address = client_mac(7)
+    saved = TerminalConfiguration(mac=address, name="Retained phone")
+    offline = replace(ac_snapshot, clients=(), terminals=TerminalState((saved,)))
+    api.async_get_snapshot.return_value = offline
+    entry = make_entry(hass)
+    coordinator = await setup(hass, entry)
+    original = client_device(hass, address)
+    assert (original.name, original.via_device_id) == ("Retained phone", None)
+    tracker = trackers(hass, entry)[address]
+    assert (tracker.device_id, tracker.disabled_by) == (original.id, DISABLED)
+    assert known_client_macs(coordinator) == {address}
+    entity = Ac100ClientEntity(coordinator, address, "probe")
+    assert (entity.client, entity.available) == (None, False)
+    device_registry.async_update_device(original.id, name_by_user="User phone")
+
+    online = replace(offline, clients=(wifi_client(7, "Study", "Current phone"),))
+    await publish(hass, api, coordinator, online)
+    current = client_device(hass, address)
+    assert (current.id, current.name, current.name_by_user, current.via_device_id) == (
+        original.id,
+        "Current phone",
+        "User phone",
+        ap_device(hass, 2).id,
+    )
+    assert entity.client == online.clients[0]
+    assert entity.available
+    assert trackers(hass, entry)[address] == tracker
+
+    renamed = replace(saved, name="Saved phone")
+    await publish(hass, api, coordinator, replace(offline, terminals=TerminalState((renamed,))))
+    away = client_device(hass, address)
+    assert (away.id, away.name, away.name_by_user, away.via_device_id) == (
+        original.id,
+        "Saved phone",
+        "User phone",
+        None,
+    )
+    assert (entity.client, entity.available) == (None, False)
+
+
+async def test_retained_configuration_is_not_home_assistant_device_removal(
+    hass, api, ac_snapshot, device_registry
+):
+    address = client_mac(7)
+    saved = TerminalConfiguration(mac=address, name="Retained phone")
+    snapshot = replace(ac_snapshot, clients=(), terminals=TerminalState((saved,)))
+    api.async_get_snapshot.return_value = snapshot
+    entry = make_entry(hass)
+    coordinator = await setup(hass, entry)
+    device = client_device(hass, address)
+    assert not await async_remove_config_entry_device(hass, entry, device)
+
+    await publish(hass, api, coordinator, replace(snapshot, terminals=None))
+    assert client_device(hass, address).id == device.id
+    assert client_device(hass, address).name == "Retained phone"
+    assert not await async_remove_config_entry_device(hass, entry, device)
+
+    empty = replace(snapshot, terminals=TerminalState())
+    await publish(hass, api, coordinator, empty)
+    assert await async_remove_config_entry_device(hass, entry, device)
+    device_registry.async_remove_device(device.id)
+    await publish(hass, api, coordinator, empty)
+    assert client_device(hass, address) is None
+    assert address not in known_client_macs(coordinator)
+
+
+async def test_configured_infrastructure_never_becomes_a_terminal(hass, api, ac_snapshot):
+    saved = TerminalState(
+        tuple(
+            TerminalConfiguration(mac=address, name="Not a client")
+            for address in (CONTROLLER_MAC, ap_mac(1), client_mac(7))
+        )
+    )
+    api.async_get_snapshot.return_value = replace(ac_snapshot, terminals=saved)
+    entry = make_entry(hass)
+    coordinator = await setup(hass, entry)
+    assert known_client_macs(coordinator) == {
+        *(client.mac for client in ac_snapshot.clients),
+        client_mac(7),
+    }
+    assert named_device(hass, "TL-AC100").via_device_id is None
+    assert ap_device(hass, 1).name == "Garage"
+    assert ap_device(hass, 1).via_device_id == named_device(hass, "TL-AC100").id
+    assert set(trackers(hass, entry)) == known_client_macs(coordinator)
+
+
+@pytest.mark.parametrize(
+    ("present", "current_name", "saved_name", "expected"),
+    [
+        (True, "Current phone", "Saved phone", "Current phone"),
+        (True, "", "Saved phone", "Saved phone"),
+        (False, None, "Saved phone", "Saved phone"),
+        (True, client_mac(1), None, "Known phone"),
+        (False, None, client_mac(1).upper().replace(":", "-"), "Known phone"),
+        (False, None, None, "Known phone"),
+    ],
+)
+async def test_saved_names_do_not_replace_user_metadata_or_promote_presence(
+    hass, api, ac_snapshot, device_registry, present, current_name, saved_name, expected
+):
+    entry = make_entry(hass)
+    device = device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        connections={(NETWORK_MAC, client_mac(1))},
+        name="Known phone",
+    )
+    device_registry.async_update_device(device.id, name_by_user="User phone")
+    saved = TerminalConfiguration(mac=client_mac(1), name=saved_name)
+    clients = (wifi_client(1, "Garage", current_name),) if present else ()
+    api.async_get_snapshot.return_value = replace(
+        ac_snapshot, clients=clients, terminals=TerminalState((saved,))
+    )
+    await setup(hass, entry)
+    current = client_device(hass, client_mac(1))
+    assert (current.id, current.name, current.name_by_user) == (device.id, expected, "User phone")
+    assert current.via_device_id == (ap_device(hass, 1).id if present else None)

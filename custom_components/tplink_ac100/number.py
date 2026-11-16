@@ -9,6 +9,7 @@ from .control_entity import Ac100SettingControl
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
 from .management import native_range, writable_fields
 from .monitoring import ConfigField
+from .terminal_controls import add_terminal_numbers
 
 
 async def async_setup_entry(
@@ -17,6 +18,7 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add a number for every whole-number setting that a web page of the controller edits."""
+    add_terminal_numbers(entry, async_add_entities)
     if not entry.options.get(CONF_ENABLE_CONTROL, False):
         return
     coordinator = entry.runtime_data

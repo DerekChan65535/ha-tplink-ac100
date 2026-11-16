@@ -33,6 +33,7 @@ from custom_components.tplink_ac100.models import (
     Snapshot,
 )
 from custom_components.tplink_ac100.monitoring import ConfigurationState, MonitoringState
+from custom_components.tplink_ac100.terminal_controls import binding_target_labels
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -74,6 +75,7 @@ PHONE = wifi_client(
     operating_system="ios",
     vlan_id=27,
     connected_at="2026/11/16 10:25:33",
+    ssid_encoding="1",
 )
 # Everything the controller reports for this client is a placeholder: 0.0.0.0, ::, --- or blank.
 BARE = wifi_client(
@@ -95,8 +97,10 @@ PHONE_STATES = {
     "ipv4_address": "192.0.2.51",
     "ipv6_address": "2001:db8::51",
     "ssid": "Example wireless",
+    "ssid_encoding": "UTF-8",
     "access_point": "Garage",
     "wifi_band": "2.4GHz",
+    "radio_unit": "1 (2.4GHz)",
     "vlan_id": "27",
     "vendor": "Apple",
     "operating_system": "iOS",
@@ -201,7 +205,10 @@ async def test_a_client_page_has_every_reading_enabled_while_the_tracker_stays_d
     await setup(hass, entry)
     device = client_device(hass, PHONE.mac)
     rows = er.async_entries_for_device(entity_registry, device.id, include_disabled_entities=True)
-    assert {row.unique_id for row in rows} == {
+    # The saved configuration readings of the terminal share the page; test_terminal_monitoring.py
+    # covers them.
+    client_rows = [row for row in rows if "_terminal_" not in row.unique_id]
+    assert {row.unique_id for row in client_rows} == {
         PHONE.mac,
         *(unique_id(PHONE, key) for key in PHONE_STATES),
     }
@@ -236,8 +243,10 @@ async def test_a_client_page_has_every_reading_enabled_while_the_tracker_stays_d
         ("ipv4_address", None, None, None, EntityCategory.DIAGNOSTIC),
         ("ipv6_address", None, None, None, EntityCategory.DIAGNOSTIC),
         ("ssid", None, None, None, EntityCategory.DIAGNOSTIC),
+        ("ssid_encoding", None, None, None, EntityCategory.DIAGNOSTIC),
         ("access_point", None, None, None, EntityCategory.DIAGNOSTIC),
         ("wifi_band", None, None, None, EntityCategory.DIAGNOSTIC),
+        ("radio_unit", None, None, None, EntityCategory.DIAGNOSTIC),
         ("vlan_id", None, None, None, EntityCategory.DIAGNOSTIC),
         ("vendor", None, None, None, EntityCategory.DIAGNOSTIC),
         ("operating_system", None, None, None, EntityCategory.DIAGNOSTIC),
@@ -279,6 +288,17 @@ async def test_unreported_clients_have_unknown_readings_and_are_still_connected(
         pytest.param({"operating_system": None}, "operating_system", id="no operating system"),
         pytest.param({"vlan_id": None}, "vlan_id", id="no VLAN, which the web UI shows as ---"),
         pytest.param({"connected_at": None}, "connection_time", id="no connection time"),
+        pytest.param({"ssid_encoding": None}, "ssid_encoding", id="no SSID encoding"),
+        pytest.param({"ssid_encoding": " "}, "ssid_encoding", id="blank SSID encoding"),
+        pytest.param({"ssid_encoding": "0"}, "ssid_encoding", id="SSID encoding that is no 1 or 2"),
+        pytest.param(
+            {"radios": (ClientRadio("", "2.4GHz", -50, 72.0),)}, "radio_unit", id="no radio unit"
+        ),
+        pytest.param(
+            {"radios": (ClientRadio("1", "---", -50, 72.0),)},
+            "radio_unit",
+            id="radio without a band name, which the web UI shows as ---",
+        ),
         pytest.param({"upload_kilobytes_per_second": None}, "wifi_upload_speed", id="no upload"),
         pytest.param(
             {"download_kilobytes_per_second": None}, "wifi_download_speed", id="no download"
@@ -318,6 +338,8 @@ async def test_zero_is_a_reading_and_the_vlan_is_not_guessed(hass, api, ac_snaps
         ("Samsung", "android", "Samsung", "Android"),
         ("oppo", "harmonyOS", "OPPO", "HarmonyOS"),
         ("vivo", "windows", "vivo", "Windows"),
+        ("others", "others", "Others", "Others"),
+        ("Others", "OTHERS", "Others", "Others"),
         ("Example vendor", "Example OS", "Example vendor", "Example OS"),
     ],
 )
@@ -330,6 +352,52 @@ async def test_vendor_and_system_use_the_controllers_own_names_or_its_raw_text(
     await setup(hass, make_entry(hass))
     readings = states(hass, PHONE)
     assert (readings["vendor"], readings["operating_system"]) == (vendor, operating_system)
+
+
+async def test_others_is_a_category_of_its_own_and_not_an_unidentified_client(
+    hass, api, ac_snapshot
+):
+    """The controller's Others category is shown; a client it did not identify stays unknown."""
+    other = replace(PHONE, brand="others", operating_system="others")
+    unidentified = replace(PHONE, brand=None, operating_system=None)
+    api.async_get_snapshot.return_value = replace(ac_snapshot, clients=(other,))
+    coordinator = await setup(hass, make_entry(hass))
+    readings = states(hass, PHONE)
+    assert (readings["vendor"], readings["operating_system"]) == ("Others", "Others")
+
+    await publish(hass, coordinator, replace(ac_snapshot, clients=(unidentified,)))
+    readings = states(hass, PHONE)
+    assert (readings["vendor"], readings["operating_system"]) == (STATE_UNKNOWN, STATE_UNKNOWN)
+
+
+@pytest.mark.parametrize(
+    ("encoding", "state"),
+    [("1", "UTF-8"), ("2", "GBK"), (" 2 ", "GBK"), ("3", STATE_UNKNOWN), ("", STATE_UNKNOWN)],
+)
+async def test_the_ssid_encoding_is_utf_8_for_1_and_gbk_for_2_and_otherwise_unknown(
+    hass, api, ac_snapshot, encoding, state
+):
+    api.async_get_snapshot.return_value = replace(
+        ac_snapshot, clients=(replace(PHONE, ssid_encoding=encoding),)
+    )
+    await setup(hass, make_entry(hass))
+    assert states(hass, PHONE)["ssid_encoding"] == state
+
+
+async def test_the_radio_unit_is_shown_with_its_band_as_the_web_ui_shows_it(hass, api, ac_snapshot):
+    radios = (
+        ClientRadio("2", "5GHz", -48, 866.0),
+        ClientRadio("1", "2.4GHz", -60, 72.0),
+        ClientRadio("2", "5GHz", -50, 400.0),
+        ClientRadio("3", "---", None, None),
+    )
+    api.async_get_snapshot.return_value = replace(
+        ac_snapshot, clients=(replace(PHONE, radios=radios),)
+    )
+    await setup(hass, make_entry(hass))
+    state = page(hass, PHONE)["radio_unit"]
+    assert state.state == "2 (5GHz), 1 (2.4GHz)"
+    assert "radios" not in state.attributes
 
 
 async def test_connection_time_is_the_controllers_local_text(hass, api, ac_snapshot):
@@ -504,6 +572,7 @@ async def test_roaming_and_renaming_update_the_readings_without_new_entities(
         "ssid": "Example 5 GHz",
         "access_point": "Study",
         "wifi_band": "5GHz",
+        "radio_unit": "2 (5GHz)",
         "signal_strength": "-48",
         "link_rate": "866.0",
         "connection_time": "2026/11/16 11:00:00",
@@ -639,6 +708,7 @@ def fixture_snapshot_responses():
             "clients.json",
             "hosts.json",
             "hosts_page2.json",
+            "radio_bind_list.json",
         )
     }
     ordered = [
@@ -649,6 +719,7 @@ def fixture_snapshot_responses():
         second_page,
         answers["hosts.json"],
         answers["hosts_page2.json"],
+        answers["radio_bind_list.json"],
     ]
     return [
         Response({"error_code": 0, "encrypt_type": ["-3"], "username_type": "one_username"}),
@@ -657,20 +728,29 @@ def fixture_snapshot_responses():
     ]
 
 
-async def test_fixture_clients_fill_their_pages_from_the_wire_format(hass, entity_registry):
+FIXTURE_CONTROLLER_MAC = "02:00:00:00:00:15"
+
+
+async def load_fixture_entry(hass):
+    """Load one entry through the real API over the anonymized fixture answers of one poll."""
+    entry = make_entry(hass, FIXTURE_CONTROLLER_MAC)
     session = MagicMock(spec=aiohttp.ClientSession)
     session.post.side_effect = fixture_snapshot_responses()
     live = Ac100Api(session, "controller.example", "admin", "example-password")
     live.async_get_monitoring = AsyncMock(return_value=MonitoringState())
     live.async_get_configuration = AsyncMock(return_value=ConfigurationState())
     live.async_logout = AsyncMock()
-    controller_mac = "02:00:00:00:00:15"
-    entry = make_entry(hass, controller_mac)
     with (
         patch("custom_components.tplink_ac100.Ac100Api", return_value=live),
         patch("custom_components.tplink_ac100.PLATFORMS", PLATFORMS),
     ):
         coordinator = await setup(hass, entry)
+    return entry, coordinator
+
+
+async def test_fixture_clients_fill_their_pages_from_the_wire_format(hass, entity_registry):
+    controller_mac = FIXTURE_CONTROLLER_MAC
+    entry, coordinator = await load_fixture_entry(hass)
 
     clients = {client.mac[-2:]: client for client in coordinator.data.clients}
     assert len(clients) == 14
@@ -685,8 +765,10 @@ async def test_fixture_clients_fill_their_pages_from_the_wire_format(hass, entit
         "ipv4_address": "192.0.2.25",
         "ipv6_address": "2001:db8::25",
         "ssid": "Example WiFi 3",
+        "ssid_encoding": "UTF-8",
         "access_point": "Example AP 3",
         "wifi_band": "5GHz",
+        "radio_unit": "2 (5GHz)",
         "vlan_id": "27",
         "vendor": "Apple",
         "operating_system": "iOS",
@@ -702,11 +784,12 @@ async def test_fixture_clients_fill_their_pages_from_the_wire_format(hass, entit
     assert sections == {
         None: {"connectivity", "signal_strength", "link_rate"}
         | {"wifi_upload_speed", "wifi_download_speed"},
-        EntityCategory.DIAGNOSTIC: {"ipv4_address", "ipv6_address", "ssid", "access_point"}
-        | {"wifi_band", "vlan_id", "vendor", "operating_system", "connection_time"},
+        EntityCategory.DIAGNOSTIC: {"ipv4_address", "ipv6_address", "ssid", "ssid_encoding"}
+        | {"access_point", "wifi_band", "radio_unit", "vlan_id", "vendor", "operating_system"}
+        | {"connection_time"},
     }
     windows = states(hass, clients["10"], controller_mac)
-    assert (windows["vendor"], windows["operating_system"]) == (STATE_UNKNOWN, "Windows")
+    assert (windows["vendor"], windows["operating_system"]) == ("Others", "Windows")
     assert windows["vlan_id"] == STATE_UNKNOWN
     assert windows["ipv6_address"] == STATE_UNKNOWN
     idle = states(hass, clients["0e"], controller_mac)
@@ -716,8 +799,80 @@ async def test_fixture_clients_fill_their_pages_from_the_wire_format(hass, entit
         for row in er.async_entries_for_config_entry(entity_registry, entry.entry_id)
         if row.domain == "device_tracker"
     ]
-    assert len(trackers) == 14
+    # The 14 clients, and the one saved record of the host table whose terminal is not listed.
+    assert len(trackers) == 15
     assert all(row.disabled_by is er.RegistryEntryDisabler.INTEGRATION for row in trackers)
+
+
+async def test_fixture_saved_records_fill_the_terminal_pages_from_the_wire_format(
+    hass, entity_registry
+):
+    entry, coordinator = await load_fixture_entry(hass)
+    records = {item.mac[-2:]: item for item in coordinator.data.terminals.configurations}
+    assert len(records) == 15
+    saved = records["11"]
+    assert saved.binding_available
+    assert (saved.rate_limit_enabled, saved.binding_enabled, saved.force_binding) == (False,) * 3
+    assert (saved.upload_limit, saved.download_limit) == (0, 0)
+    assert (saved.bound_ap, saved.bound_radio, saved.bound_target) == (None, None, None)
+
+    def reading(mac: str, key: str) -> str:
+        domain = "binary_sensor" if key.endswith(("_enabled", "_binding")) else "sensor"
+        unique = f"{FIXTURE_CONTROLLER_MAC}_terminal_{mac}_{key}"
+        entity_id = entity_registry.async_get_entity_id(domain, DOMAIN, unique)
+        assert entity_id is not None, unique
+        return hass.states.get(entity_id).state
+
+    present = "02:00:00:00:00:11"
+    assert {
+        key: reading(present, key)
+        for key in ("upload_limit", "download_limit", "bound_access_point", "bound_radio")
+        + ("rate_limit_enabled", "binding_enabled", "force_binding", "name")
+    } == {
+        "upload_limit": "0",
+        "download_limit": "0",
+        "bound_access_point": STATE_UNKNOWN,
+        "bound_radio": STATE_UNKNOWN,
+        "rate_limit_enabled": STATE_OFF,
+        "binding_enabled": STATE_OFF,
+        "force_binding": STATE_OFF,
+        "name": STATE_UNKNOWN,
+    }
+    # The saved record of a terminal that the client list does not show has a page of its own.
+    retained = "02:00:00:00:00:30"
+    assert retained not in {client.mac for client in coordinator.data.clients}
+    assert client_device(hass, retained) is not None
+    assert reading(retained, "rate_limit_enabled") == STATE_OFF
+    connectivity = entity_registry.async_get_entity_id(
+        "binary_sensor", DOMAIN, f"{FIXTURE_CONTROLLER_MAC}_client_{retained}_connectivity"
+    )
+    assert hass.states.get(connectivity).state == STATE_OFF
+    # The binding choices come from the radio list: the AP's device name tells the two APs apart
+    # that the controller named alike, and an AP with one radio offers no all-radios choice.
+    labels = binding_target_labels(coordinator, saved.binding_targets)
+    assert list(labels.values()) == [
+        "Example AP 1 - All radios",
+        "Example AP 1 - 2.4GHz",
+        "Example AP 1 - 5GHz",
+        "Example AP 3 000003 - All radios",
+        "Example AP 3 000003 - 2.4GHz",
+        "Example AP 3 000003 - 5GHz",
+        "Example AP 4 - 2.4GHz",
+        "Example AP 5 - 2.4GHz",
+    ]
+    assert list(labels) == [
+        f"02:00:00:00:00:{number:02x}/{radio}"
+        for number, radio in (
+            (1, "all"),
+            (1, "1"),
+            (1, "2"),
+            (3, "all"),
+            (3, "1"),
+            (3, "2"),
+            (4, "1"),
+            (6, "1"),
+        )
+    ]
 
 
 # Translations

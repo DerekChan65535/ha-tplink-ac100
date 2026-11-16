@@ -11,6 +11,7 @@ from custom_components.tplink_ac100.api import Ac100Api
 from custom_components.tplink_ac100.const import DOMAIN
 from custom_components.tplink_ac100.models import AccessPoint, Client, Controller, Snapshot
 from custom_components.tplink_ac100.monitoring import ConfigurationState, MonitoringState
+from custom_components.tplink_ac100.terminal import TerminalState
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -24,7 +25,10 @@ CLIENT = Client(
 
 async def test_only_unreported_devices_can_be_removed(hass, device_registry):
     snapshot = Snapshot(
-        Controller("02:00:00:00:00:01", "TL-AC100", "5.0", "1", {}, 1.0, 1), (AP,), (CLIENT,)
+        Controller("02:00:00:00:00:01", "TL-AC100", "5.0", "1", {}, 1.0, 1),
+        (AP,),
+        (CLIENT,),
+        terminals=TerminalState(),
     )
     entry = MockConfigEntry(
         domain=DOMAIN,

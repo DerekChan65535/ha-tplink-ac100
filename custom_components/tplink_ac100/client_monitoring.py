@@ -16,15 +16,17 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import SIGNAL_STRENGTH_DECIBELS_MILLIWATT, EntityCategory, UnitOfDataRate
-from homeassistant.core import callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .client_entity import Ac100ClientEntity, known_client_macs
+from .client_entity import Ac100ClientEntity
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
 from .models import Client
+from .terminal_entity import add_for_each_terminal
 
-# The controller's wireless terminal identification page lists these brands and systems. Any
-# other identification is shown as the controller reports it.
+# The controller's wireless terminal identification page lists these brands and systems, and an
+# Others category for a client that it identified as none of them. Any other identification is
+# shown as the controller reports it. A client that the controller did not identify at all (---)
+# has none, which is not the same as Others.
 _BRANDS = {
     "apple": "Apple",
     "samsung": "Samsung",
@@ -35,6 +37,7 @@ _BRANDS = {
     "oppo": "OPPO",
     "xiaomi": "Xiaomi",
     "honor": "Honor",
+    "others": "Others",
 }
 _SYSTEMS = {
     "ios": "iOS",
@@ -42,7 +45,11 @@ _SYSTEMS = {
     "android": "Android",
     "symbian": "Symbian",
     "harmonyos": "HarmonyOS",
+    "others": "Others",
 }
+# The web UI marks a non-ASCII SSID with the encoding that the controller reports for it (1 or 2)
+# and calls any other value unknown. This reading shows the reported encoding whenever there is one.
+_SSID_ENCODINGS = {"1": "UTF-8", "2": "GBK"}
 
 
 def _address(value: str, version: int) -> str | None:
@@ -64,6 +71,19 @@ def _bands(client: Client) -> str | None:
     """The distinct band names that the controller reports, such as 2.4GHz."""
     names = dict.fromkeys(radio.frequency.strip() for radio in client.radios)
     return ", ".join(name for name in names if name and name != "---") or None
+
+
+def _radio_units(client: Client) -> str | None:
+    """The radio unit of each radio that the controller names, as the web UI shows it: 1 (2.4GHz).
+
+    The web UI shows --- for a radio without a band name; that radio has no unit here either.
+    """
+    units = dict.fromkeys(
+        f"{radio.unit.strip()} ({radio.frequency.strip()})"
+        for radio in client.radios
+        if radio.unit.strip() and radio.frequency.strip() not in {"", "---"}
+    )
+    return ", ".join(units) or None
 
 
 def _strongest_signal(client: Client) -> int | None:
@@ -159,6 +179,12 @@ CLIENT_SENSORS = (
         value_fn=lambda client: _text(client.ssid),
     ),
     Ac100ClientSensorDescription(
+        key="ssid_encoding",
+        translation_key="client_ssid_encoding",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda client: _SSID_ENCODINGS.get((client.ssid_encoding or "").strip()),
+    ),
+    Ac100ClientSensorDescription(
         key="access_point",
         translation_key="client_access_point",
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -169,6 +195,12 @@ CLIENT_SENSORS = (
         translation_key="client_wifi_band",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=_bands,
+    ),
+    Ac100ClientSensorDescription(
+        key="radio_unit",
+        translation_key="client_radio_unit",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=_radio_units,
     ),
     Ac100ClientSensorDescription(
         key="vlan_id",
@@ -201,7 +233,7 @@ def add_client_sensors(
     entry: Ac100ConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
     """Add the readings for every current, restored and later discovered client."""
-    _add_for_each_client(
+    add_for_each_terminal(
         entry,
         async_add_entities,
         lambda coordinator, mac: [
@@ -214,31 +246,11 @@ def add_client_connectivity(
     entry: Ac100ConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
     """Add the connectivity sensor for every current, restored and later discovered client."""
-    _add_for_each_client(
+    add_for_each_terminal(
         entry,
         async_add_entities,
         lambda coordinator, mac: [Ac100ClientConnectivity(coordinator, mac)],
     )
-
-
-def _add_for_each_client(
-    entry: Ac100ConfigEntry,
-    async_add_entities: AddConfigEntryEntitiesCallback,
-    create: Callable[[Ac100Coordinator, str], list[Any]],
-) -> None:
-    """Create entities once per client MAC; they stay while the client is away."""
-    coordinator = entry.runtime_data
-    known: set[str] = set()
-
-    @callback
-    def add_clients() -> None:
-        new = known_client_macs(coordinator) - known
-        known.update(new)
-        if entities := [entity for mac in sorted(new) for entity in create(coordinator, mac)]:
-            async_add_entities(entities)
-
-    add_clients()
-    entry.async_on_unload(coordinator.async_add_listener(add_clients))
 
 
 class Ac100ClientSensor(Ac100ClientEntity, SensorEntity):

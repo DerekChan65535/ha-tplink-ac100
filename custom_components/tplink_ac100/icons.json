@@ -96,6 +96,39 @@
       },
       "client_connection_time": {
         "default": "mdi:clock-outline"
+      },
+      "client_radio_unit": {
+        "default": "mdi:radio-tower"
+      },
+      "client_ssid_encoding": {
+        "default": "mdi:translate"
+      },
+      "terminal_name": {
+        "default": "mdi:rename-box"
+      },
+      "terminal_upload_limit": {
+        "default": "mdi:upload"
+      },
+      "terminal_download_limit": {
+        "default": "mdi:download"
+      },
+      "terminal_bound_access_point": {
+        "default": "mdi:access-point"
+      },
+      "terminal_bound_radio": {
+        "default": "mdi:sine-wave"
+      },
+      "terminal_schedule_mode": {
+        "default": "mdi:calendar-clock"
+      },
+      "terminal_schedule_manual_weekdays": {
+        "default": "mdi:calendar-week"
+      },
+      "terminal_schedule_manual_windows": {
+        "default": "mdi:clock-outline"
+      },
+      "terminal_schedule_calendar_day": {
+        "default": "mdi:calendar-today"
       }
     },
     "binary_sensor": {
@@ -139,6 +172,24 @@
         "default": "mdi:lan-disconnect",
         "state": {
           "off": "mdi:lan-connect"
+        }
+      },
+      "terminal_rate_limit_enabled": {
+        "default": "mdi:speedometer-slow",
+        "state": {
+          "off": "mdi:speedometer"
+        }
+      },
+      "terminal_binding_enabled": {
+        "default": "mdi:link-variant",
+        "state": {
+          "off": "mdi:link-variant-off"
+        }
+      },
+      "terminal_force_binding": {
+        "default": "mdi:lock",
+        "state": {
+          "off": "mdi:lock-open-variant"
         }
       }
     },
@@ -199,21 +250,77 @@
         "state": {
           "off": "mdi:wifi-off"
         }
+      },
+      "terminal_rate_limit": {
+        "default": "mdi:speedometer-slow",
+        "state": {
+          "off": "mdi:speedometer"
+        }
+      },
+      "terminal_binding": {
+        "default": "mdi:link-variant",
+        "state": {
+          "off": "mdi:link-variant-off"
+        }
+      },
+      "terminal_force_binding": {
+        "default": "mdi:lock",
+        "state": {
+          "off": "mdi:lock-open-variant"
+        }
+      },
+      "terminal_schedule_manual_day": {
+        "default": "mdi:calendar-check",
+        "state": {
+          "off": "mdi:calendar-remove"
+        }
       }
     },
     "number": {
       "broadcast_storm_rate": {
         "default": "mdi:speedometer"
+      },
+      "terminal_upload_limit": {
+        "default": "mdi:upload"
+      },
+      "terminal_download_limit": {
+        "default": "mdi:download"
       }
     },
     "text": {
       "device_alias": {
         "default": "mdi:rename-box"
+      },
+      "terminal_name": {
+        "default": "mdi:rename-box"
+      },
+      "terminal_schedule_manual_windows": {
+        "default": "mdi:clock-edit-outline"
+      },
+      "terminal_schedule_calendar_day": {
+        "default": "mdi:calendar-edit"
       }
     },
     "button": {
       "save_configuration": {
         "default": "mdi:content-save"
+      },
+      "terminal_disconnect": {
+        "default": "mdi:lan-disconnect"
+      },
+      "terminal_disconnect_and_clear": {
+        "default": "mdi:delete-forever"
+      },
+      "terminal_clear_offline": {
+        "default": "mdi:eraser"
+      }
+    },
+    "select": {
+      "terminal_binding_target": {
+        "default": "mdi:access-point"
+      },
+      "terminal_schedule_mode": {
+        "default": "mdi:calendar-clock"
       }
     }
   }

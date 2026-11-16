@@ -57,7 +57,7 @@
     "step": {
       "init": {
         "title": "Controller management",
-        "description": "Monitoring is read-only by default. Device control allows explicit management actions: indicator LEDs, AP radios, wireless networks, controller settings and name, Save configuration and reboots. Most control entities are created disabled; enable only the ones you need. Each action is sent once and is never repeated automatically. Changes stay in the controller's running configuration until Save configuration is pressed, and saving also stores changes made outside Home Assistant. Turning a radio or wireless network off disconnects its clients. Before an LED action, one AP configuration row is checked in memory for LED/Wi-Fi synchronization; it is not saved or logged, and LED control requires synchronization to be off.",
+        "description": "Monitoring is read-only by default. Device control allows explicit management actions: indicator LEDs, AP radios, wireless networks, controller settings and name, Save configuration and reboots. It also allows actions on each Wi-Fi client: its name on the controller, rate limit, AP binding, allowed times, disconnecting it and clearing its saved record. Most control entities are created disabled; enable only the ones you need. The client controls are listed on each client's page even while this option is off, and stay unavailable until it is on. Each action is sent once and is never repeated automatically. Changes stay in the controller's running configuration until Save configuration is pressed, and saving also stores changes made outside Home Assistant. Turning a radio or wireless network off disconnects its clients. A client's rate limit, binding or allowed times can cut it off from the network, and clearing its saved record deletes that record on the controller. Before an LED action, one AP configuration row is checked in memory for LED/Wi-Fi synchronization; it is not saved or logged, and LED control requires synchronization to be off.",
         "data": {
           "enable_control": "Enable device control",
           "monitor_wireless_services": "Monitor wireless networks"
@@ -106,6 +106,18 @@
       },
       "radio_enabled": {
         "name": "{band} radio"
+      },
+      "terminal_rate_limit": {
+        "name": "Rate limit"
+      },
+      "terminal_binding": {
+        "name": "AP binding"
+      },
+      "terminal_force_binding": {
+        "name": "Forced AP binding"
+      },
+      "terminal_schedule_manual_day": {
+        "name": "Manual {day}"
       }
     },
     "button": {
@@ -114,6 +126,15 @@
       },
       "save_configuration": {
         "name": "Save configuration"
+      },
+      "terminal_disconnect": {
+        "name": "Disconnect"
+      },
+      "terminal_disconnect_and_clear": {
+        "name": "Disconnect and clear saved configuration"
+      },
+      "terminal_clear_offline": {
+        "name": "Clear saved configuration"
       }
     },
     "sensor": {
@@ -488,6 +509,44 @@
       },
       "client_connection_time": {
         "name": "Connection time"
+      },
+      "client_radio_unit": {
+        "name": "Radio unit"
+      },
+      "client_ssid_encoding": {
+        "name": "SSID encoding"
+      },
+      "terminal_name": {
+        "name": "Name on controller"
+      },
+      "terminal_upload_limit": {
+        "name": "Upload limit"
+      },
+      "terminal_download_limit": {
+        "name": "Download limit"
+      },
+      "terminal_bound_access_point": {
+        "name": "Bound access point"
+      },
+      "terminal_bound_radio": {
+        "name": "Bound radio"
+      },
+      "terminal_schedule_mode": {
+        "name": "Allowed time",
+        "state": {
+          "any": "Any time",
+          "manual": "Manual",
+          "calendar": "Calendar"
+        }
+      },
+      "terminal_schedule_manual_weekdays": {
+        "name": "Manual weekdays"
+      },
+      "terminal_schedule_manual_windows": {
+        "name": "Manual time windows"
+      },
+      "terminal_schedule_calendar_day": {
+        "name": "Calendar {day}"
       }
     },
     "binary_sensor": {
@@ -622,6 +681,15 @@
       },
       "wireless_service_isolation": {
         "name": "Client isolation"
+      },
+      "terminal_rate_limit_enabled": {
+        "name": "Rate limit enabled"
+      },
+      "terminal_binding_enabled": {
+        "name": "AP binding enabled"
+      },
+      "terminal_force_binding": {
+        "name": "Forced AP binding enabled"
       }
     },
     "update": {
@@ -653,6 +721,12 @@
       },
       "broadcast_storm_rate": {
         "name": "Broadcast storm suppression rate"
+      },
+      "terminal_upload_limit": {
+        "name": "Upload limit"
+      },
+      "terminal_download_limit": {
+        "name": "Download limit"
       }
     },
     "select": {
@@ -676,11 +750,31 @@
           "6": "6 Mbit/s",
           "24": "24 Mbit/s"
         }
+      },
+      "terminal_binding_target": {
+        "name": "AP binding target"
+      },
+      "terminal_schedule_mode": {
+        "name": "Allowed time",
+        "state": {
+          "any": "Any time",
+          "manual": "Manual",
+          "calendar": "Calendar"
+        }
       }
     },
     "text": {
       "device_alias": {
         "name": "Device name"
+      },
+      "terminal_name": {
+        "name": "Name on controller"
+      },
+      "terminal_schedule_manual_windows": {
+        "name": "Manual time windows"
+      },
+      "terminal_schedule_calendar_day": {
+        "name": "Calendar {day}"
       }
     }
   },
@@ -692,7 +786,7 @@
       "message": "Controller authentication failed. Reauthenticate the integration."
     },
     "control_failed": {
-      "message": "The controller could not complete the action. Check the device state before trying again."
+      "message": "The action did not finish normally. Some changes may already have taken effect. Check the device state before trying again; the action was not retried automatically."
     },
     "control_unavailable": {
       "message": "The device is offline or is not managed by this controller."
@@ -707,7 +801,7 @@
       "message": "The controller has temporarily locked this account after too many failed sign-in attempts. Wait until the lock ends, then try again."
     },
     "session_expired": {
-      "message": "The controller session expired and the action was not retried automatically. Check the current state and run the action again if it is still needed."
+      "message": "The controller session expired. The result may be unknown, and the action was not retried automatically. Check the device state before trying again."
     },
     "wireless_service_unavailable": {
       "message": "The controller does not list this wireless network. Wait for the next update and try again."
@@ -723,6 +817,12 @@
     },
     "control_rejected": {
       "message": "The controller rejected the action. The account may not be allowed to make this change. If the password was changed, Home Assistant asks for it after the next update."
+    },
+    "terminal_action_refused": {
+      "message": "The terminal action was refused. {reason}."
+    },
+    "terminal_action_partial": {
+      "message": "The terminal action stopped before completion. {reason}. Check the controller before trying again; no writes were retried or rolled back."
     }
   }
 }

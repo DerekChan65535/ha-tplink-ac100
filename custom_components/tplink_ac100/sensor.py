@@ -25,6 +25,8 @@ from .entity import Ac100Entity, band_label
 from .models import AccessPoint, ApRadio, Client, Snapshot
 from .monitoring_sensor import add_monitoring_sensors
 from .radio_entity import add_radio_settings
+from .terminal_monitoring import add_terminal_sensors
+from .terminal_schedule_entities import add_terminal_schedule_sensors
 from .wireless_service import add_wireless_service_sensors
 
 PARALLEL_UPDATES = 0
@@ -327,6 +329,8 @@ async def async_setup_entry(
     add_radio_settings(entry, async_add_entities, binary=False)
     add_wireless_service_sensors(entry, async_add_entities)
     add_client_sensors(entry, async_add_entities)
+    add_terminal_sensors(entry, async_add_entities)
+    add_terminal_schedule_sensors(entry, async_add_entities)
 
 
 class Ac100ControllerSensor(Ac100Entity, SensorEntity):

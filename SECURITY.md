@@ -53,25 +53,41 @@ Ordinary non-security bugs belong in the public issue tracker with redacted logs
 
 Normal polling reads the client association list and `host_management.host_info`, even
 with management off and all client trackers disabled. These tables contain client names,
-MAC/IP addresses, SSIDs, VLAN IDs, vendor and operating system identification, connection
-times and traffic rates; the host table can also include departed hosts and per-client limits.
-Only current clients receive speed values; raw rows and their other fields are discarded in
-memory.
+MAC/IP addresses, SSIDs and encoding, radio units, VLAN IDs, vendor and operating system
+identification, connection times and traffic rates. The host table can also include departed
+hosts, saved names, per-client limits, AP binding and linked time objects. Only current clients
+receive speed values. Only allow-listed typed configuration leaves the API layer; raw rows and
+unneeded fields are discarded in memory.
 
-Each client's device page shows readings that are **enabled by default**: connectivity, signal
-strength, link rate, upload and download speed, IPv4 and IPv6 address, SSID, access point name,
-Wi-Fi band, VLAN ID, vendor, operating system and connection time. They add no request,
-setting or credential. They are state values that HA records, with long-term statistics for
-the measurements, and may export through history, the logbook, dashboards, voice assistants or
-external services. The signal strength and link rate sensors also carry per-radio records as an
-attribute that the recorder does not store. The connection time is the controller's local date
-and time as text, without a time zone.
+When the host table is readable, the poll reads one credential-free radio-binding list for each
+distinct nonnegative saved service ID, at most one all-radio list if needed, and each distinct
+singly linked time object within the pre-existing 256-host-row guard. Radio lists are unpaged
+and require exact count/row agreement, with a 1368-raw-row guard including templates.
+Incomplete data is unreadable, not
+truncated target choices. There is no cache or TTL; see README.md for the request budget.
+These identify a saved binding and allowed-time schedule. This does not opt into the wireless
+service table that contains Wi-Fi keys, and does not read the AP credential table, global
+identification settings, DHCP reservations, or unrelated time objects.
+
+Each current or retained client's device page shows readings that are **enabled by default**:
+16 connection readings, including SSID encoding and radio unit, and 18 saved-configuration
+readings, including its saved name, limits, binding and allowed hours. Saved records do not
+imply presence, a current AP or current telemetry. A missing value stays unknown; an unreadable
+source is not presented as current or unrestricted.
+
+These are state values that HA records and may export through history, the logbook, dashboards,
+voice assistants or external services. Signal strength, link rate and speeds have measurement
+statistics. Saved names, limits and schedules have no measurement statistics or large state
+attributes, but they can still reveal a user's identity, habits or access rules. The per-radio
+`radios` attributes are not stored by the recorder. Connection times and schedules use the
+controller's local clock, not HA's time zone.
 
 Device names and MACs remain in HA's device registry. The optional client tracker is separate,
 stays disabled by default and also exposes client details as state attributes. Controller/AP
 speed sensors expose sums of the clients' reported rates. Logs and downloadable diagnostics do
-not include these client records. Review HA's recorder, dashboard and external-service
-settings, and disable or exclude the client entities that you do not want to keep or share.
+not include these client records, binding targets or schedules. Review HA's recorder, dashboard
+and external-service settings, and disable or exclude entities that you do not want to keep
+or share.
 
 ## Debug logging allowlist
 
@@ -124,6 +140,21 @@ HA switch, with readback, and its original state was restored. Other AP models a
 firmware are untested. AP/controller reboot has not been tested on live hardware. The
 other controls (AP radio, SSID switches, controller settings and name, Save configuration)
 were live-tested once each on one controller with restore; see README.md for the scope.
+
+Terminal controls have **not been tested on live hardware**. They follow the cached controller
+terminal pages and have simulated-controller tests. They are always registered on the existing
+MAC-identified client device, disabled by default, and unavailable without management opt-in
+and the needed source. Name changes, caps, AP binding, permitted hours, disconnect and clearing
+a saved record can affect a client's access. Disconnect does not prevent immediate reconnection;
+clearing a record is neither a permanent block nor deleting its HA device.
+
+Every terminal action freshly reads the terminal and required record, targets or schedule under
+the shared session lock. Ambiguous records, a stale identity or an unreadable/shared time object
+must refuse an unsafe write. Writes are never replayed after expiry or timeout, optimistically
+reported, automatically saved or rolled back. A multi-step schedule change or clear can partly
+succeed; HA reports that fact and the next scheduled poll rereads state. Check the controller
+before retrying. Form writes preserve unrelated fields from the fresh record; a rename writes
+only the name. See README.md for ranges, schedule modes and the distinction from HA names.
 
 Some APs link LED state with Wi-Fi. Before **each** LED write, the integration must
 confirm `led_wifi_sync` is explicitly **off**; on, missing, or unknown blocks the write.

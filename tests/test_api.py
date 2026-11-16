@@ -5,7 +5,7 @@ import copy
 import hashlib
 import json
 import logging
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -27,6 +27,7 @@ from custom_components.tplink_ac100.api import (
 )
 from custom_components.tplink_ac100.diagnostics import async_get_config_entry_diagnostics
 from custom_components.tplink_ac100.switch import Ac100LedSwitch
+from custom_components.tplink_ac100.terminal import TerminalState
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -81,6 +82,7 @@ def led_config(entry_id="0", sync="off", **extra):
 
 
 def snapshot_responses():
+    """One poll's answers: the core reads, the host table, and the radios of its one network."""
     return [
         Response(load(name))
         for name in (
@@ -91,6 +93,7 @@ def snapshot_responses():
             "clients_page2.json",
             "hosts.json",
             "hosts_page2.json",
+            "radio_bind_list.json",
         )
     ]
 
@@ -387,8 +390,11 @@ def host(*, ssid="Example WiFi 1", ap="Example AP 1", up="1", down="1", mac="02-
 
 
 async def snapshot_with_hosts(*responses):
-    """Poll with the given answers to the host table's page requests."""
-    api, session = make_api(*snapshot_responses()[:5], *responses)
+    """Poll with the given answers to the host table's page requests.
+
+    The answer of the radio list follows them: it is only asked for after a readable table.
+    """
+    api, session = make_api(*snapshot_responses()[:5], *responses, snapshot_responses()[7])
     api._stok = "synthetic-session"
     return await api.async_get_snapshot(), session
 
@@ -434,9 +440,10 @@ async def test_the_poll_adds_exactly_the_host_table_pages():
         ["apmng_client"],
         ["host_management"],
         ["host_management"],
+        ["apmng_wserv"],
     ]
     assert all(body["method"] == "get" for body in bodies)
-    assert bodies[-2:] == [
+    assert bodies[-3:-1] == [
         {
             "method": "get",
             "host_management": {
@@ -447,6 +454,14 @@ async def test_the_poll_adds_exactly_the_host_table_pages():
         }
         for start in (0, 10)
     ]
+    # Every fixture host is connected to wireless network 0, so its radios are read once.
+    assert bodies[-1] == {
+        "method": "get",
+        "apmng_wserv": {
+            "table": "radio_bind_list",
+            "filter": [{"group_id": ["-1"], "bind_status": "1", "serv_id": "0"}],
+        },
+    }
 
 
 ELSEWHERE = {"ssid": "Example WiFi 2", "ap": "Example AP 2"}
@@ -548,8 +563,14 @@ async def test_an_unreadable_host_table_leaves_the_speeds_unknown_and_nothing_el
     caplog.set_level(logging.DEBUG, logger="custom_components.tplink_ac100.api")
     baseline, _ = await snapshot_with_hosts(*host_responses([]))
     caplog.clear()
-    snapshot, _ = await snapshot_with_hosts(*BROKEN_HOST_TABLES[broken]())
-    assert snapshot == baseline
+    snapshot, session = await snapshot_with_hosts(*BROKEN_HOST_TABLES[broken]())
+    # An empty table is a readable one with no record; an unreadable table is no information.
+    assert baseline.terminals == TerminalState(())
+    assert snapshot.terminals is None
+    assert snapshot == replace(baseline, terminals=None)
+    assert not [
+        call for call in session.post.call_args_list if "apmng_wserv" in call.kwargs["json"]
+    ]
     assert set(speeds_of(snapshot).values()) == {(None, None)}
     assert [record.getMessage() for record in caplog.records] == [
         "Controller client speeds are unavailable",
@@ -589,7 +610,7 @@ async def test_a_host_table_this_account_may_not_read_is_not_a_credentials_failu
     caplog.set_level(logging.DEBUG, logger="custom_components.tplink_ac100.api")
     baseline, _ = await snapshot_with_hosts(*host_responses([]))
     snapshot, session = await snapshot_with_hosts(answer)
-    assert snapshot == baseline
+    assert snapshot == replace(baseline, terminals=None)
     assert len(host_requests(session)) == 1
     assert "Controller client speeds are unavailable" in caplog.text
 
