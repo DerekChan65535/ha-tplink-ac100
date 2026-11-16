@@ -314,7 +314,7 @@ def tracker_id(entity_registry, mac: str) -> str:
     return entity_registry.async_get_entity_id("device_tracker", DOMAIN, mac)
 
 
-async def test_every_tracker_has_a_client_device_linked_to_the_controller(
+async def test_every_tracker_has_a_client_device_behind_its_access_point(
     hass, api, ac_snapshot, device_registry
 ):
     entry = make_entry(hass)
@@ -329,7 +329,7 @@ async def test_every_tracker_has_a_client_device_linked_to_the_controller(
         assert device.connections == {(dr.CONNECTION_NETWORK_MAC, client.mac)}
         assert not device.identifiers
         assert device.config_entry_id == entry.entry_id
-        assert device.via_device_id == controller_device(hass).id
+        assert device.via_device_id == ap_device(hass, ac_snapshot.aps[0]).id
         assert rows[client.mac].device_id == device.id
     devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
     assert {device.name for device in devices} == {
@@ -422,7 +422,7 @@ async def test_tracker_without_a_device_gets_one_again(
     await setup(hass, entry)
     device = client_device(hass, named.mac)
     assert device.name == ("Example phone" if present else named.mac)
-    assert device.via_device_id == controller_device(hass).id
+    assert device.via_device_id == (ap_device(hass, ac_snapshot.aps[0]).id if present else None)
     assert entity_registry.async_get(row.entity_id).device_id == device.id
 
 

@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.2.2] - Unreleased
+
+### Added
+
+- Each client's device page shows read-only readings of its own. They are **enabled by
+  default**, so the page no longer depends on the optional client tracker: connectivity (off
+  while the client is away), signal strength (dBm, the strongest radio), link rate (Mbit/s, the
+  highest negotiated rate, not traffic), Wi-Fi upload and download speed (kB/s), IPv4 and IPv6
+  address, SSID, access point name, Wi-Fi band, VLAN ID, vendor, operating system and
+  connection time. They come from the client list that the 60-second poll already reads, with
+  no extra request.
+- A value that the controller does not report stays unknown. Placeholder addresses (`---`,
+  `0.0.0.0` and `::`) and a VLAN of 0 (which the web UI shows as `---`) are not shown as values. The connection time is the
+  controller's local date and time as text, with no time zone. The signal strength and link
+  rate sensors carry per-radio records as an attribute that the recorder does not store.
+
+### Changed
+
+- Devices have three levels: TL-AC100, its APs, and the clients of each AP. A client is linked
+  to the AP that the controller names for it, but only when exactly one AP, an offline one
+  included, has that exact name. A client whose AP name is shared, unknown or not listed, and a
+  client that is away, has no parent device. No client is attached to the controller any more.
+  The links are corrected when the integration loads after the upgrade, and they follow a
+  client that roams. Device IDs, entity IDs, and names, areas and labels that you set are kept.
+- A client's device is named by the name that the controller reports for it now, and by its
+  MAC address while it reports none. A client that is away keeps its device and name.
+
+### Fixed
+
+- A client's device page showed only its MAC address, because the details were in the optional
+  client tracker, which is disabled by default. The tracker stays optional and unchanged.
+- The controller's **Connected devices** listed every client. Each client is listed under its
+  AP now, and the controller lists its APs.
+
 ## [0.2.1] - 2026-11-15
 
 ### Fixed

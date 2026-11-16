@@ -19,7 +19,7 @@ service is required.
 | --- | --- |
 | Home Assistant | Requires **2026.11.1 or newer**; development/test target: 2026.11.1. Older versions are not supported. |
 | Controller | Live-checked: **TL-AC100 hardware 5.0**, firmware **1.0.5 Build 250814 Rel.82234n** (read-only polling in native HA, one AP LED cycle). Other versions are unverified. |
-| Monitoring | Controller, AP, radio, port, interface, firmware and client state, with the clients' Wi-Fi speeds; controller and radio settings as disabled-by-default readings. |
+| Monitoring | Controller, AP, radio, port, interface, firmware and client state, with each client's own readings and Wi-Fi speeds; controller and radio settings as disabled-by-default readings. |
 | Wireless networks (SSIDs) | Optional device per SSID; off by default because the controller returns Wi-Fi keys with the SSID list (they are dropped in memory). |
 | Controls | Optional, off by default: AP LED, AP radio, SSID enable/broadcast/isolation/IGMP, band steering, load balancing, broadcast storm suppression, multicast, controller name, Save configuration. Live-tested with restore on the hardware above; see [Controls](#controls). |
 | AP/controller reboot | Optional, disruptive control; **not tested on live hardware**. |
@@ -36,8 +36,9 @@ you accept the risk. Reboot button entities are also disabled by default; turnin
 the option does not make it safe to invoke them. Do not use write operations as a
 health check. Software tests and interface evidence do not establish hardware safety.
 
-Client names, addresses, presence, and traffic rates can be sensitive. Review which
-entities you enable and expose to dashboards, history, automations, or external services.
+Client names, addresses, presence, signal and traffic rates can be sensitive. Client pages
+show their readings by default, so review what Home Assistant records and what you expose to
+dashboards, automations, or external services. See [Client pages](#client-pages).
 
 ## What it shows
 
@@ -55,8 +56,11 @@ Native readings, not an embedded controller web panel:
   An AP sensor adds up the clients that report the AP's name, because the controller names the
   AP of a client and nothing else. It is unavailable while any other AP, even an offline one,
   has the same name, so give each AP a unique name in the controller. A client without a reported speed adds nothing, and a
-  sensor is unknown when none of its clients reports one. Client trackers show their own speeds
-  as attributes.
+  sensor is unknown when none of its clients reports one. Each client's page shows its own
+  speeds as sensors, and client trackers keep them as attributes.
+- Clients: a device for each client, with connectivity, signal strength, link rate, speeds,
+  addresses, SSID, access point, band, VLAN, vendor, operating system and connection time.
+  These readings are enabled by default; see [Client pages](#client-pages).
 - Settings, disabled by default: 70 controller settings (roaming, band steering, load
   balancing, radio optimization, multicast, time, session limits and AP management) and 21
   configured values per AP radio (mode, channel width, channel, power level 1-10, client
@@ -134,11 +138,23 @@ Reboot is not tested.
 
 ## Device pages
 
-Every client has a device, connected by the client's MAC address and linked to the
-controller. It is named by the client's name, or by its MAC address while the controller
-reports no name. A client that is away keeps its device and name, and a new name that the
-controller reports is applied the next time the integration loads. The client trackers
-remain disabled by default.
+Devices have three levels: the **TL-AC100** controller, its **APs**, and the **clients** of
+each AP. The controller's page lists its APs under **Connected devices**, not the clients. An
+AP's page lists the clients that are connected to it.
+
+The controller tells a client only the *name* of its AP. A client is linked to an AP only
+when exactly one AP has that exact name, an offline AP included. A client whose AP name is
+shared, unknown or not listed has no parent device, and neither has a client that is away. It
+is never attached to the controller instead. Give each AP a unique name in the controller to
+link all of its clients. A client that roams moves to its new AP on the next update. Version
+0.2.1 attached every client to the controller. This is corrected when the integration loads
+after the upgrade.
+
+Every client has a device of its own, identified by the client's MAC address. Its device ID,
+its entity IDs, and any name, area or label that you set are kept. A name that the controller
+reports updates the default device name. An unnamed or absent client keeps its earlier known
+name; the MAC address is used only when no name is known. The client trackers remain disabled
+by default.
 
 The controller device is named by its model (`TL-AC100`), APs without a name use their
 model plus the last six MAC digits, and APs with duplicate names get those digits as a
@@ -147,6 +163,48 @@ and hardware versions are filled in when the controller reports them. The device
 links to the AC website for troubleshooting: disable the HA entry before signing in there.
 An AP or client device that the controller no longer reports can be deleted from its
 device page; the controller and currently reported devices cannot.
+
+### Client pages
+
+Each client's page shows the readings below. They are read-only and **enabled by default**.
+They need no extra request, because the 60-second poll already reads the client list and the
+host table. You do not need the client tracker to see them. That is 14 entities for each
+client.
+
+| Reading | Unit | Shows |
+| --- | --- | --- |
+| Connectivity | | On while the controller lists the client, off while it is away. |
+| Signal strength | dBm | The strongest signal among the client's radios. |
+| Link rate | Mbit/s | The highest negotiated Wi-Fi rate among its radios. This is the link rate, not traffic. |
+| Wi-Fi upload speed, Wi-Fi download speed | kB/s | The client's current traffic, as the controller reports it. |
+| IPv4 address, IPv6 address | | The addresses that the controller reports. |
+| SSID, Access point, Wi-Fi band | | The wireless network, the AP name exactly as the controller reports it, and the band, such as `2.4GHz`. |
+| VLAN ID | | The client's VLAN, from 1 to 4094. |
+| Vendor, Operating system | | How the controller identifies the client. It is often unknown. |
+| Connection time | | When the client connected: the date and time that the controller's web UI shows, in the controller's local time. |
+
+Connectivity, signal strength, link rate and the speeds are normal sensors. The other readings
+are diagnostic sensors, which Home Assistant lists under **Diagnostic** on the device page.
+
+A value that the controller does not report stays **unknown**. Placeholder addresses (`---`,
+`0.0.0.0` and `::`) are unknown. VLAN 0 is unknown, as in the controller's web UI; it is not
+VLAN 1. A vendor or system that the controller reports as `others` or `---` is unknown. Known
+names, such as `apple`, are shown as Apple, and any other text is shown as the controller
+reports it. The connection time has no time zone, so it is text and not a timestamp. There is
+no MAC address reading, because the MAC address is already the device's connection.
+
+While a client is away, its readings are unavailable and its connectivity is off. After a failed
+poll, all readings are unavailable, connectivity included.
+
+The **client tracker** is a separate, optional entity for presence (home or away). It stays
+disabled by default and keeps its entity ID. Enable it only if you want a presence entity; the
+readings above do not need it.
+
+Each reading is a normal entity, so Home Assistant records its history by default, and
+long-term statistics for the signal strength, link rate and speeds. Exclude the entities that
+you do not want recorded, or disable them: a reading that you disable stays disabled after a
+restart. The per-radio details that the signal strength and link rate sensors carry in the
+`radios` attribute are not stored by the recorder.
 
 ## Not included
 

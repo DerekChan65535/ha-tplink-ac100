@@ -11,6 +11,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .client_monitoring import add_client_connectivity
 from .configuration_entity import add_configuration_entities
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
 from .entity import Ac100Entity
@@ -54,6 +55,7 @@ async def async_setup_entry(
     add_configuration_entities(entry, async_add_entities, binary=True)
     add_radio_settings(entry, async_add_entities, binary=True)
     add_wireless_service_binary_sensors(entry, async_add_entities)
+    add_client_connectivity(entry, async_add_entities)
 
 
 class Ac100ApConnectivitySensor(Ac100Entity, BinarySensorEntity):

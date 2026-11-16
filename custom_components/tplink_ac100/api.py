@@ -13,6 +13,7 @@ import unicodedata
 from asyncio import sleep
 from collections.abc import Awaitable, Mapping
 from dataclasses import replace
+from datetime import datetime
 from time import monotonic
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
@@ -262,7 +263,37 @@ def _parse_client(row: dict[str, Any]) -> Client:
             )
             for radio in row.get("rf_entry", [])
         ),
+        brand=_client_identification(row.get("brand")),
+        operating_system=_client_identification(row.get("operating_system")),
+        vlan_id=_client_vlan(row.get("vlan_id")),
+        connected_at=_client_connected_at(row),
     )
+
+
+def _client_identification(value: Any) -> str | None:
+    """The controller's vendor/OS identification, excluding its unknown placeholders."""
+    text = _version(value)
+    return None if text is None or text.casefold() in {"others", "unknown"} else text
+
+
+def _client_vlan(value: Any) -> int | None:
+    """The web UI displays VLAN 0 as unknown, not as VLAN 1 or an untagged network."""
+    vlan = _count(value)
+    return vlan if vlan is not None and 1 <= vlan <= 4094 else None
+
+
+def _client_connected_at(row: dict[str, Any]) -> str | None:
+    """The controller-local date and time shown in the UI; no timezone is supplied."""
+    date = _text(row.get("connect_date"), 10)
+    time = _text(row.get("connect_time"), 8)
+    if date is None or time is None:
+        return None
+    value = f"{date} {time}"
+    try:
+        datetime.strptime(value, "%Y/%m/%d %H:%M:%S")
+    except ValueError:
+        return None
+    return value
 
 
 def _host_speeds(row: dict[str, Any]) -> tuple[float | None, float | None]:

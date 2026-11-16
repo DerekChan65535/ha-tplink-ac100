@@ -1,20 +1,17 @@
 """Optional native Wi-Fi client presence tracking."""
 
-import re
 from typing import Any
 
 from homeassistant.components.device_tracker import ScannerEntity
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import UNDEFINED
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .client_entity import known_client_macs
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
+from .device_info import client_device_info, current_client
 from .models import Client
-
-_MAC = re.compile(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}")
 
 
 async def async_setup_entry(
@@ -22,17 +19,10 @@ async def async_setup_entry(
 ) -> None:
     coordinator = entry.runtime_data
     known: set[str] = set()
-    registry = er.async_get(hass)
-    restored = {
-        entity.unique_id
-        for entity in er.async_entries_for_config_entry(registry, entry.entry_id)
-        if entity.domain == "device_tracker" and _MAC.fullmatch(entity.unique_id)
-    }
 
     @callback
     def add_clients() -> None:
-        current = {client.mac for client in coordinator.data.clients} | restored
-        new = current - known
+        new = known_client_macs(coordinator) - known
         known.update(new)
         async_add_entities(Ac100ClientTracker(coordinator, mac) for mac in sorted(new))
 
@@ -53,10 +43,7 @@ class Ac100ClientTracker(CoordinatorEntity[Ac100Coordinator], ScannerEntity):
 
     @property
     def client(self) -> Client | None:
-        return next(
-            (client for client in self.coordinator.data.clients if client.mac == self.mac_address),
-            None,
-        )
+        return current_client(self.coordinator, self.mac_address)
 
     @property
     def is_connected(self) -> bool:
@@ -71,26 +58,9 @@ class Ac100ClientTracker(CoordinatorEntity[Ac100Coordinator], ScannerEntity):
         return self.client.name if self.client else None
 
     @property
-    def device_info(self) -> dr.DeviceInfo:
-        """Describe the client's device, linked to the controller.
-
-        A client that is away leaves the name of its device as it is. If it has no device yet,
-        the MAC address names it, as Home Assistant would name any scanned device. Without a
-        name the registry would use the title of the config entry.
-        """
-        connection = (dr.CONNECTION_NETWORK_MAC, self.mac_address)
-        name = UNDEFINED
-        if client := self.client:
-            name = client.name or client.mac
-        elif not dr.async_get(self.hass).async_get_device_by_connection(
-            connection, self.coordinator.entry.entry_id
-        ):
-            name = self.mac_address
-        return dr.DeviceInfo(
-            connections={connection},
-            name=name,
-            via_device_id=self.coordinator.controller_device_id,
-        )
+    def device_info(self) -> DeviceInfo:
+        """Describe the client's device, which every other entity of the client shares."""
+        return client_device_info(self.coordinator, self.mac_address)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

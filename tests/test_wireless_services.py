@@ -289,7 +289,8 @@ async def test_every_network_is_a_device_behind_the_controller(
         attached = {row.unique_id for row in rows.values() if row.device_id == device.id}
         assert attached == {unique_id(service.service_id, key) for _, key in READ_ONLY}
     names = {d.name for d in dr.async_entries_for_config_entry(device_registry, entry.entry_id)}
-    assert names == {"TL-AC100", "Garage", "Home", "Guest", "Cameras"}
+    clients = {f"Phone {number}" for number in range(1, 5)}
+    assert names == {"TL-AC100", "Garage", "Home", "Guest", "Cameras"} | clients
 
 
 async def test_entities_have_stable_ids_categories_and_defaults(hass, start, entity_registry):

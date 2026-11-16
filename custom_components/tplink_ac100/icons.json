@@ -66,6 +66,36 @@
       },
       "wifi_download_speed": {
         "default": "mdi:download"
+      },
+      "client_link_rate": {
+        "default": "mdi:speedometer"
+      },
+      "client_ipv4_address": {
+        "default": "mdi:ip-network"
+      },
+      "client_ipv6_address": {
+        "default": "mdi:ip-network-outline"
+      },
+      "client_ssid": {
+        "default": "mdi:wifi"
+      },
+      "client_access_point": {
+        "default": "mdi:access-point"
+      },
+      "client_wifi_band": {
+        "default": "mdi:sine-wave"
+      },
+      "client_vlan_id": {
+        "default": "mdi:lan"
+      },
+      "client_vendor": {
+        "default": "mdi:factory"
+      },
+      "client_operating_system": {
+        "default": "mdi:cellphone-cog"
+      },
+      "client_connection_time": {
+        "default": "mdi:clock-outline"
       }
     },
     "binary_sensor": {

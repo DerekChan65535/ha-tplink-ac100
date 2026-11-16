@@ -455,6 +455,39 @@
       },
       "wifi_download_speed": {
         "name": "Wi-Fi download speed"
+      },
+      "client_signal_strength": {
+        "name": "Signal strength"
+      },
+      "client_link_rate": {
+        "name": "Link rate"
+      },
+      "client_ipv4_address": {
+        "name": "IPv4 address"
+      },
+      "client_ipv6_address": {
+        "name": "IPv6 address"
+      },
+      "client_ssid": {
+        "name": "SSID"
+      },
+      "client_access_point": {
+        "name": "Access point"
+      },
+      "client_wifi_band": {
+        "name": "Wi-Fi band"
+      },
+      "client_vlan_id": {
+        "name": "VLAN ID"
+      },
+      "client_vendor": {
+        "name": "Vendor"
+      },
+      "client_operating_system": {
+        "name": "Operating system"
+      },
+      "client_connection_time": {
+        "name": "Connection time"
       }
     },
     "binary_sensor": {

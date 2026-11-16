@@ -86,6 +86,10 @@ class Client:
     radios: tuple[ClientRadio, ...]
     upload_kilobytes_per_second: float | None = None
     download_kilobytes_per_second: float | None = None
+    brand: str | None = None
+    operating_system: str | None = None
+    vlan_id: int | None = None
+    connected_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

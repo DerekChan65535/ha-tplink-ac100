@@ -53,13 +53,25 @@ Ordinary non-security bugs belong in the public issue tracker with redacted logs
 
 Normal polling reads the client association list and `host_management.host_info`, even
 with management off and all client trackers disabled. These tables contain client names,
-MAC/IP addresses, SSIDs and traffic rates; the host table can also include departed hosts
-and per-client limits. Only current clients receive speed values; raw host rows and their
-other fields are discarded in memory. Device names and MACs remain in HA's device registry,
-and enabled trackers expose client details as state attributes, which HA may record or
-export. Controller/AP speed sensors expose sums of the clients' reported rates. Logs and
-downloadable diagnostics do not include these client records. Review HA's recorder and
-external-service settings before enabling or sharing client entities.
+MAC/IP addresses, SSIDs, VLAN IDs, vendor and operating system identification, connection
+times and traffic rates; the host table can also include departed hosts and per-client limits.
+Only current clients receive speed values; raw rows and their other fields are discarded in
+memory.
+
+Each client's device page shows readings that are **enabled by default**: connectivity, signal
+strength, link rate, upload and download speed, IPv4 and IPv6 address, SSID, access point name,
+Wi-Fi band, VLAN ID, vendor, operating system and connection time. They add no request,
+setting or credential. They are state values that HA records, with long-term statistics for
+the measurements, and may export through history, the logbook, dashboards, voice assistants or
+external services. The signal strength and link rate sensors also carry per-radio records as an
+attribute that the recorder does not store. The connection time is the controller's local date
+and time as text, without a time zone.
+
+Device names and MACs remain in HA's device registry. The optional client tracker is separate,
+stays disabled by default and also exposes client details as state attributes. Controller/AP
+speed sensors expose sums of the clients' reported rates. Logs and downloadable diagnostics do
+not include these client records. Review HA's recorder, dashboard and external-service
+settings, and disable or exclude the client entities that you do not want to keep or share.
 
 ## Debug logging allowlist
 

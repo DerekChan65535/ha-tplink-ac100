@@ -18,6 +18,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
+from .client_monitoring import add_client_sensors
 from .configuration_entity import add_configuration_entities
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
 from .entity import Ac100Entity, band_label
@@ -325,6 +326,7 @@ async def async_setup_entry(
     add_configuration_entities(entry, async_add_entities, binary=False)
     add_radio_settings(entry, async_add_entities, binary=False)
     add_wireless_service_sensors(entry, async_add_entities)
+    add_client_sensors(entry, async_add_entities)
 
 
 class Ac100ControllerSensor(Ac100Entity, SensorEntity):

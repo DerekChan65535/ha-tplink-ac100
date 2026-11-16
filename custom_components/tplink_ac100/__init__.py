@@ -7,9 +7,10 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import Ac100Api
+from .client_entity import known_client_macs
 from .const import CONF_MONITOR_WIRELESS_SERVICES, DOMAIN, PLATFORMS
 from .coordinator import Ac100ConfigEntry, Ac100Coordinator
-from .device_info import ap_device_info, controller_device_info
+from .device_info import ap_device_info, client_device_info, controller_device_info
 from .wireless_service import wireless_service_device_key
 
 
@@ -23,27 +24,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: Ac100ConfigEntry) -> boo
     )
     coordinator = Ac100Coordinator(hass, entry, api)
     registry = dr.async_get(hass)
-    try:
-        await coordinator.async_config_entry_first_refresh()
-        device = registry.async_get_or_create_from_info(
+
+    @callback
+    def refresh_devices() -> None:
+        """Keep the devices and their links current, as entities describe a device only when added.
+
+        The controller has the APs and each AP has its clients, so parents are registered
+        before their children. A client's device does not wait for any of its entities: the
+        optional tracker is usually disabled, and the links must not depend on it.
+        """
+        if not coordinator.last_update_success:
+            return
+        controller = registry.async_get_or_create_from_info(
             config_entry_id=entry.entry_id, device_info=controller_device_info(coordinator)
         )
-        coordinator.controller_device_id = device.id
+        coordinator.controller_device_id = controller.id
+        for ap in coordinator.data.aps:
+            registry.async_get_or_create_from_info(
+                config_entry_id=entry.entry_id, device_info=ap_device_info(coordinator, ap)
+            )
+        for mac in sorted(known_client_macs(coordinator)):
+            registry.async_get_or_create_from_info(
+                config_entry_id=entry.entry_id, device_info=client_device_info(coordinator, mac)
+            )
+
+    try:
+        await coordinator.async_config_entry_first_refresh()
         entry.runtime_data = coordinator
+        refresh_devices()
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except BaseException:
         await coordinator.async_shutdown()
         raise
-
-    @callback
-    def refresh_devices() -> None:
-        """Keep device fields current, as entities describe their device only when added."""
-        if not coordinator.last_update_success:
-            return
-        infos = [controller_device_info(coordinator)]
-        infos.extend(ap_device_info(coordinator, ap) for ap in coordinator.data.aps)
-        for info in infos:
-            registry.async_get_or_create_from_info(config_entry_id=entry.entry_id, device_info=info)
 
     entry.async_on_unload(coordinator.async_add_listener(refresh_devices))
     return True
