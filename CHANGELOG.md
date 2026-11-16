@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.2] - Unreleased
+## [0.2.2] - 2026-11-16
 
 ### Added
 
@@ -12,8 +12,8 @@
   connection time. They come from the client list that the 60-second poll already reads, with
   no extra request.
 - A value that the controller does not report stays unknown. Placeholder addresses (`---`,
-  `0.0.0.0` and `::`) and a VLAN of 0 (which the web UI shows as `---`) are not shown as values. The connection time is the
-  controller's local date and time as text, with no time zone. The signal strength and link
+  `0.0.0.0` and `::`) and a VLAN of 0 (which the web UI shows as `---`) are not shown as values.
+  The connection time is the controller's local date and time as text, with no time zone. The signal strength and link
   rate sensors carry per-radio records as an attribute that the recorder does not store.
 
 ### Changed
@@ -24,8 +24,8 @@
   client that is away, has no parent device. No client is attached to the controller any more.
   The links are corrected when the integration loads after the upgrade, and they follow a
   client that roams. Device IDs, entity IDs, and names, areas and labels that you set are kept.
-- A client's device is named by the name that the controller reports for it now, and by its
-  MAC address while it reports none. A client that is away keeps its device and name.
+- A name reported by the controller updates the client's default device name. An unnamed or
+  absent client keeps its earlier known name; the MAC address is used only when no name is known.
 
 ### Fixed
 
