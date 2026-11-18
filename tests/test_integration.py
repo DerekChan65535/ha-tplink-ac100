@@ -6,7 +6,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import STATE_HOME, STATE_NOT_HOME, STATE_UNAVAILABLE, EntityCategory
+from homeassistant.const import (
+    CONF_SCAN_INTERVAL,
+    STATE_HOME,
+    STATE_NOT_HOME,
+    STATE_UNAVAILABLE,
+    EntityCategory,
+)
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import UpdateFailed
@@ -119,6 +125,22 @@ async def test_default_setup_is_read_only_and_unloads(hass, ac_entry, ac_api, en
     ac_api.async_reboot_controller.assert_not_called()
     assert await hass.config_entries.async_unload(ac_entry.entry_id)
     assert not coordinator._listeners
+
+
+@pytest.mark.parametrize("interval", [None, 75, 3600, 10.5])
+async def test_polling_interval_is_applied_and_reported(hass, ac_entry, ac_api, interval):
+    """Existing entries default to ten seconds; selected values reach polling and diagnostics."""
+    if interval is not None:
+        hass.config_entries.async_update_entry(ac_entry, options={CONF_SCAN_INTERVAL: interval})
+    coordinator = await setup(hass, ac_entry)
+    expected = 10 if interval is None else interval
+    assert coordinator.update_interval.total_seconds() == expected
+    diagnostics = await async_get_config_entry_diagnostics(hass, ac_entry)
+    assert diagnostics["poll_interval_seconds"] == expected
+    assert diagnostics["optional_poll_intervals_seconds"] == {
+        "monitoring": 300,
+        "configuration": 900,
+    }
 
 
 @pytest.mark.usefixtures("entity_registry_enabled_by_default")

@@ -9,7 +9,6 @@ from .const import (
     CONF_MONITOR_WIRELESS_SERVICES,
     CONFIGURATION_INTERVAL,
     MONITORING_INTERVAL,
-    UPDATE_INTERVAL,
 )
 from .coordinator import Ac100ConfigEntry
 
@@ -31,7 +30,7 @@ async def async_get_config_entry_diagnostics(
         "memory_usage": controller.memory_usage,
         "uptime": controller.uptime,
         "last_update_success": coordinator.last_update_success,
-        "poll_interval_seconds": int(UPDATE_INTERVAL.total_seconds()),
+        "poll_interval_seconds": coordinator.update_interval.total_seconds(),
         "management_enabled": entry.options.get(CONF_ENABLE_CONTROL, False),
         "wireless_services_monitored": entry.options.get(CONF_MONITOR_WIRELESS_SERVICES, False),
         "optional_poll_intervals_seconds": {

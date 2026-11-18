@@ -3,11 +3,12 @@
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
+from datetime import timedelta
 from functools import partial
 from time import monotonic
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.const import CONF_SCAN_INTERVAL, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
@@ -34,9 +35,9 @@ from .const import (
     CONF_ENABLE_CONTROL,
     CONF_MONITOR_WIRELESS_SERVICES,
     CONFIGURATION_INTERVAL,
+    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MONITORING_INTERVAL,
-    UPDATE_INTERVAL,
 )
 from .models import Snapshot
 from .monitoring import ConfigurationState, MonitoringState
@@ -53,12 +54,13 @@ class Ac100Coordinator(DataUpdateCoordinator[Snapshot]):
     controller_device_id: str
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, api: Ac100Api) -> None:
+        interval = timedelta(seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
         super().__init__(
             hass,
             _LOGGER,
             config_entry=entry,
             name=DOMAIN,
-            update_interval=UPDATE_INTERVAL,
+            update_interval=interval,
             always_update=False,
         )
         self.api = api
@@ -66,7 +68,7 @@ class Ac100Coordinator(DataUpdateCoordinator[Snapshot]):
         self._monitoring: MonitoringState | None = None
         self._configuration: ConfigurationState | None = None
         self._next_monitoring = 0.0
-        self._next_configuration = monotonic() + UPDATE_INTERVAL.total_seconds()
+        self._next_configuration = monotonic() + interval.total_seconds()
         self._failed_reads: set[str] = set()
         self._refresh_all = False
 
@@ -112,15 +114,21 @@ class Ac100Coordinator(DataUpdateCoordinator[Snapshot]):
     async def _async_update_optional(self, snapshot: Snapshot) -> Snapshot:
         """Run at most one slow read per poll, without a catch-up burst after downtime.
 
-        Settings are read only while an enabled entity uses them. After a management action
-        both reads run at once, so the changed value is shown on the next update.
+        Settings are read only while an enabled entity uses them. The oldest due tier runs
+        first, so slower core polling cannot starve settings. After a management action both
+        reads run at once, so the changed value is shown on the next update.
         """
         now = monotonic()
         refresh_all, self._refresh_all = self._refresh_all, False
         read_monitoring = refresh_all or now >= self._next_monitoring
         read_configuration = CONFIGURATION_CONTEXT in set(self.async_contexts()) and (
-            refresh_all or (not read_monitoring and now >= self._next_configuration)
+            refresh_all or now >= self._next_configuration
         )
+        if read_monitoring and read_configuration and not refresh_all:
+            if self._next_monitoring <= self._next_configuration:
+                read_configuration = False
+            else:
+                read_monitoring = False
         if read_monitoring:
             self._monitoring = await self._async_read_optional(
                 "monitoring",

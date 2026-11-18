@@ -11,9 +11,9 @@ from homeassistant.config_entries import (
     SOURCE_USER,
     ConfigEntryState,
 )
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.tplink_ac100.api import (
@@ -81,7 +81,7 @@ async def test_user_success(hass: HomeAssistant, flow_api: MagicMock) -> None:
         await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"] == {**DATA, CONF_HOST: "http://192.0.2.1"}
-    assert result["options"] == {CONF_ENABLE_CONTROL: False}
+    assert result["options"] == {CONF_ENABLE_CONTROL: False, CONF_SCAN_INTERVAL: 10}
     assert result["result"].unique_id == MAC
     setup.assert_awaited_once()
     flow_api.async_login.assert_awaited_once()
@@ -245,8 +245,49 @@ async def test_options(hass: HomeAssistant, flow_entry: MockConfigEntry, enabled
     assert flow_entry.options == {
         CONF_ENABLE_CONTROL: enabled,
         CONF_MONITOR_WIRELESS_SERVICES: False,
+        CONF_SCAN_INTERVAL: 10,
     }
     reload_entry.assert_called_once_with(flow_entry.entry_id)
+
+
+@pytest.mark.parametrize("interval", [10, 75, 3600, 10.5])
+async def test_polling_interval_options_preserve_opt_ins_and_identity(
+    hass: HomeAssistant, flow_entry: MockConfigEntry, flow_api: MagicMock, interval: float
+) -> None:
+    """Changing local polling preserves the opt-ins and never contacts the controller."""
+    previous_options = {
+        CONF_ENABLE_CONTROL: True,
+        CONF_MONITOR_WIRELESS_SERVICES: True,
+        CONF_SCAN_INTERVAL: 120,
+    }
+    hass.config_entries.async_update_entry(flow_entry, options=previous_options)
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload_entry:
+        result = await hass.config_entries.options.async_init(flow_entry.entry_id)
+        assert result["data_schema"]({}) == previous_options
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {CONF_SCAN_INTERVAL: interval}
+        )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert flow_entry.options == {**previous_options, CONF_SCAN_INTERVAL: interval}
+    assert flow_entry.unique_id == MAC
+    assert flow_entry.data == DATA
+    reload_entry.assert_called_once_with(flow_entry.entry_id)
+    assert not flow_api.mock_calls
+
+
+@pytest.mark.parametrize("interval", [9, 3601, "not-a-number"])
+async def test_polling_interval_rejects_invalid_options(
+    hass: HomeAssistant, flow_entry: MockConfigEntry, interval
+) -> None:
+    """Reject invalid selections before saving or scheduling a reload."""
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload_entry:
+        result = await hass.config_entries.options.async_init(flow_entry.entry_id)
+        with pytest.raises(InvalidData):
+            await hass.config_entries.options.async_configure(
+                result["flow_id"], {CONF_SCAN_INTERVAL: interval}
+            )
+    assert flow_entry.options == {CONF_ENABLE_CONTROL: False}
+    reload_entry.assert_not_called()
 
 
 async def test_invalid_host_does_not_connect(hass: HomeAssistant, caplog) -> None:

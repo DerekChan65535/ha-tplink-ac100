@@ -56,13 +56,15 @@
   "options": {
     "step": {
       "init": {
-        "title": "Controller management",
+        "title": "Controller options",
         "description": "Monitoring is read-only by default. Device control allows explicit management actions: indicator LEDs, AP radios, wireless networks, controller settings and name, Save configuration and reboots. It also allows actions on each Wi-Fi client: its name on the controller, rate limit, AP binding, allowed times, disconnecting it and clearing its saved record. Most control entities are created disabled; enable only the ones you need. The client controls are listed on each client's page even while this option is off, and stay unavailable until it is on. Each action is sent once and is never repeated automatically. Changes stay in the controller's running configuration until Save configuration is pressed, and saving also stores changes made outside Home Assistant. Turning a radio or wireless network off disconnects its clients. A client's rate limit, binding or allowed times can cut it off from the network, and clearing its saved record deletes that record on the controller. Before an LED action, one AP configuration row is checked in memory for LED/Wi-Fi synchronization; it is not saved or logged, and LED control requires synchronization to be off.",
         "data": {
           "enable_control": "Enable device control",
-          "monitor_wireless_services": "Monitor wireless networks"
+          "monitor_wireless_services": "Monitor wireless networks",
+          "scan_interval": "Core refresh interval (seconds)"
         },
         "data_description": {
+          "scan_interval": "10–3600 seconds; default 10 matches the WebUI table timer. This changes only Home Assistant polling, not device settings. Status and settings run less often; longer intervals may delay them. Shorter intervals increase API load.",
           "enable_control": "Allow explicit management actions. This setting does not run any action by itself.",
           "monitor_wireless_services": "Add a device for each wireless network (SSID), with its status and, when device control is enabled, its settings. The controller returns Wi-Fi and RADIUS keys together with the SSID list. They are dropped in memory and are never stored, logged or shown. When this is off, the SSID list is not requested."
         }

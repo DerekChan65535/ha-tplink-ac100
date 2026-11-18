@@ -13,11 +13,18 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlowWithReload,
 )
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import format_mac
-from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 
 from .api import (
     Ac100AccountLockedError,
@@ -33,7 +40,10 @@ from .const import (
     CONF_ENABLE_CONTROL,
     CONF_MONITOR_WIRELESS_SERVICES,
     DEFAULT_ENABLE_CONTROL,
+    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MAX_SCAN_INTERVAL,
+    MIN_SCAN_INTERVAL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,12 +61,6 @@ REAUTH_SCHEMA = probatio.Schema(
     {
         probatio.Required(CONF_USERNAME): str,
         probatio.Required(CONF_PASSWORD): _PASSWORD_SELECTOR,
-    }
-)
-OPTIONS_SCHEMA = probatio.Schema(
-    {
-        probatio.Required(CONF_ENABLE_CONTROL, default=DEFAULT_ENABLE_CONTROL): bool,
-        probatio.Required(CONF_MONITOR_WIRELESS_SERVICES, default=False): bool,
     }
 )
 
@@ -156,7 +160,10 @@ class Ac100ConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(
                 title="TP-Link TL-AC100",
                 data={**user_input, CONF_HOST: normalize_host(user_input[CONF_HOST])},
-                options={CONF_ENABLE_CONTROL: DEFAULT_ENABLE_CONTROL},
+                options={
+                    CONF_ENABLE_CONTROL: DEFAULT_ENABLE_CONTROL,
+                    CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
+                },
             )
         return self.async_show_form(step_id="user", data_schema=USER_SCHEMA, errors=errors)
 
@@ -198,15 +205,38 @@ class Ac100ConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class Ac100OptionsFlow(OptionsFlowWithReload):
-    """Choose whether explicit device management is allowed and wireless networks are read."""
+    """Choose the local polling interval and optional controller access."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Save the opt-ins and let Home Assistant reload the entry."""
+        """Save local options and let Home Assistant reload the entry."""
         if user_input is not None:
             return self.async_create_entry(data=user_input)
+        options = self.config_entry.options
+        schema = probatio.Schema(
+            {
+                probatio.Required(
+                    CONF_SCAN_INTERVAL,
+                    default=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=MIN_SCAN_INTERVAL,
+                        max=MAX_SCAN_INTERVAL,
+                        step=1,
+                        unit_of_measurement="s",
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                probatio.Required(
+                    CONF_ENABLE_CONTROL,
+                    default=options.get(CONF_ENABLE_CONTROL, DEFAULT_ENABLE_CONTROL),
+                ): bool,
+                probatio.Required(
+                    CONF_MONITOR_WIRELESS_SERVICES,
+                    default=options.get(CONF_MONITOR_WIRELESS_SERVICES, False),
+                ): bool,
+            }
+        )
         return self.async_show_form(
             step_id="init",
-            data_schema=self.add_suggested_values_to_schema(
-                OPTIONS_SCHEMA, self.config_entry.options
-            ),
+            data_schema=self.add_suggested_values_to_schema(schema, options),
         )

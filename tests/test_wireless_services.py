@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import (
+    CONF_SCAN_INTERVAL,
     STATE_OFF,
     STATE_ON,
     STATE_UNAVAILABLE,
@@ -37,6 +38,7 @@ from custom_components.tplink_ac100.api import (
 from custom_components.tplink_ac100.const import (
     CONF_ENABLE_CONTROL,
     CONF_MONITOR_WIRELESS_SERVICES,
+    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
 from custom_components.tplink_ac100.diagnostics import async_get_config_entry_diagnostics
@@ -234,15 +236,24 @@ async def test_the_options_form_offers_the_wireless_opt_in_defaulting_to_off(has
         assert {str(key) for key in result["data_schema"].schema} == {
             CONF_ENABLE_CONTROL,
             CONF_MONITOR_WIRELESS_SERVICES,
+            CONF_SCAN_INTERVAL,
         }
         saved = await hass.config_entries.options.async_configure(result["flow_id"], {})
         assert saved["type"] is FlowResultType.CREATE_ENTRY
-        assert entry.options == {CONF_ENABLE_CONTROL: False, CONF_MONITOR_WIRELESS_SERVICES: False}
+        assert entry.options == {
+            CONF_ENABLE_CONTROL: True,
+            CONF_MONITOR_WIRELESS_SERVICES: False,
+            CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
+        }
         result = await hass.config_entries.options.async_init(entry.entry_id)
         await hass.config_entries.options.async_configure(
             result["flow_id"], {CONF_MONITOR_WIRELESS_SERVICES: True}
         )
-    assert entry.options == {CONF_ENABLE_CONTROL: False, CONF_MONITOR_WIRELESS_SERVICES: True}
+    assert entry.options == {
+        CONF_ENABLE_CONTROL: True,
+        CONF_MONITOR_WIRELESS_SERVICES: True,
+        CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
+    }
     assert reload_entry.call_count == 2
 
 

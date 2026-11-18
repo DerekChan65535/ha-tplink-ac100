@@ -25,6 +25,7 @@ from custom_components.tplink_ac100.api import (
     Ac100UnsafeLedError,
     normalize_host,
 )
+from custom_components.tplink_ac100.const import UPDATE_INTERVAL
 from custom_components.tplink_ac100.diagnostics import async_get_config_entry_diagnostics
 from custom_components.tplink_ac100.switch import Ac100LedSwitch
 from custom_components.tplink_ac100.terminal import TerminalState
@@ -1213,7 +1214,9 @@ async def test_transient_ap_configuration_credentials_do_not_escape_to_state_or_
     attributes_before = set(vars(api))
     await api.async_set_ap_led("0", False)
     snapshot = await api.async_get_snapshot()
-    coordinator = SimpleNamespace(data=snapshot, last_update_success=True)
+    coordinator = SimpleNamespace(
+        data=snapshot, last_update_success=True, update_interval=UPDATE_INTERVAL
+    )
     entry = SimpleNamespace(runtime_data=coordinator, options={})
     diagnostics = await async_get_config_entry_diagnostics(None, entry)
     retained_api_state = {key: value for key, value in vars(api).items() if key != "_session"}

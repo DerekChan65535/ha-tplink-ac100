@@ -33,6 +33,7 @@ from custom_components.tplink_ac100.const import (
     CONF_ENABLE_CONTROL,
     CONF_MONITOR_WIRELESS_SERVICES,
     DOMAIN,
+    UPDATE_INTERVAL,
 )
 from custom_components.tplink_ac100.diagnostics import async_get_config_entry_diagnostics
 from custom_components.tplink_ac100.models import Controller, Snapshot
@@ -683,7 +684,9 @@ async def test_secrets_never_leave_the_api(caplog):
         monitoring=state,
     )
     entry = SimpleNamespace(
-        runtime_data=SimpleNamespace(data=snapshot, last_update_success=True),
+        runtime_data=SimpleNamespace(
+            data=snapshot, last_update_success=True, update_interval=UPDATE_INTERVAL
+        ),
         options={"monitor_wireless_services": True},
     )
     diagnostics = json.dumps(await async_get_config_entry_diagnostics(None, entry))

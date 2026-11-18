@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.2.3b2] - 2026-11-18
+
+**Beta release.** This update changes Home Assistant polling, not controller configuration.
+The default is aligned with the WebUI's common table timer; it is not a verified device rate limit.
+Terminal hardware acceptance remains incomplete; this update adds no terminal hardware experiment.
+
+### Added
+
+- A native **Core refresh interval (seconds)** integration option, from **10 to 3600 seconds**, with
+  **10 seconds** as the default. It applies on options reload. Existing entries without a saved
+  interval use the new default, keeping their control/SSID opt-ins and device/entity identities.
+- Simplified Chinese text for the integration options screen; other screens retain their existing
+  translations and fallback behavior.
+
+### Changed
+
+- The shared core polling default changes from 60 to 10 seconds, matching the WebUI's common AP/client
+  table timer, not its 3-second CPU/memory or 5-second top-bar timers. This shorter interval increases
+  API load. The device's safe sustained whole-controller rate is unknown; the new default has not
+  been load-tested on physical hardware.
+- Status and enabled-settings reads keep their nominal 5/15-minute due periods, checked on core
+  polls. Long primary intervals can delay them. Normal polls still run only one slower read and
+  never start a catch-up burst. Reads after explicit management actions retain their refresh behavior.
+
+### Fixed
+
+- Slow primary polling intervals can no longer indefinitely favor status reads over enabled settings:
+  when both are due, the older deadline is served first. No per-entity polling, parallel timer, cache,
+  write retry, automatic Save, identity migration or user-settings reset is introduced.
+- Current documentation distinguishes incomplete terminal hardware acceptance from no hardware
+  operation ever having been attempted. Earlier release notes remain historical records.
+
 ## [0.2.3b1] - 2026-11-16
 
 **Beta release.** New terminal controls are disabled by default and have not been exercised on

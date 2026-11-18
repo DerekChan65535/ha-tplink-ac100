@@ -4,6 +4,7 @@ from dataclasses import replace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant.common import MockConfigEntry
@@ -26,7 +27,7 @@ pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 
 @pytest.fixture
-async def tier_setup(hass):
+async def tier_setup(hass, request):
     """Load the real coordinator but no entity platforms or physical device."""
     clock = [100.0]
     snapshot = Snapshot(
@@ -38,6 +39,7 @@ async def tier_setup(hass):
         domain=DOMAIN,
         unique_id=snapshot.controller.mac,
         data={"host": "http://192.0.2.1", "username": "example", "password": "example-only"},
+        options={CONF_SCAN_INTERVAL: request.param} if hasattr(request, "param") else {},
     )
     entry.add_to_hass(hass)
     api = AsyncMock(spec=Ac100Api)
@@ -77,11 +79,11 @@ async def test_staggered_tiers_no_catch_up_burst(tier_setup):
     use_settings(coordinator)
     api.async_get_monitoring.assert_awaited_once_with(wireless_services=False)
     api.async_get_configuration.assert_not_awaited()
-    clock[0] = 159
+    clock[0] = 109
     await coordinator.async_refresh()
     api.async_get_monitoring.assert_awaited_once_with(wireless_services=False)
     api.async_get_configuration.assert_not_awaited()
-    clock[0] = 160
+    clock[0] = 110
     await coordinator.async_refresh()
     api.async_get_configuration.assert_awaited_once_with()
     clock[0] = 400
@@ -94,6 +96,86 @@ async def test_staggered_tiers_no_catch_up_burst(tier_setup):
     api.async_get_configuration.assert_awaited_once_with()
     clock[0] = 2001
     await coordinator.async_refresh()
+    assert api.async_get_configuration.await_count == 2
+
+
+@pytest.mark.parametrize("tier_setup", [10, 75, 3600, 10.5], indirect=True)
+async def test_selected_interval_sets_polling_and_initial_settings_stagger(tier_setup):
+    coordinator, _, _, _ = tier_setup
+    interval = coordinator.config_entry.options[CONF_SCAN_INTERVAL]
+    assert coordinator.update_interval.total_seconds() == interval
+    assert coordinator._next_configuration == 100 + interval
+
+
+@pytest.mark.parametrize(
+    ("tier_setup", "expected"),
+    [
+        (
+            300,
+            [
+                "monitoring",
+                "configuration",
+                "monitoring",
+                "monitoring",
+                "monitoring",
+                "configuration",
+            ],
+        ),
+        (900, ["monitoring", "configuration"] * 3),
+        (3600, ["monitoring", "configuration"] * 3),
+    ],
+    indirect=["tier_setup"],
+)
+async def test_slow_intervals_do_not_starve_settings(tier_setup, expected):
+    """Each poll runs the oldest due tier, with monitoring winning deadline ties."""
+    coordinator, api, clock, _ = tier_setup
+    use_settings(coordinator)
+    interval = coordinator.update_interval.total_seconds()
+    observed = []
+    for step in range(1, 7):
+        monitoring_before = api.async_get_monitoring.await_count
+        configuration_before = api.async_get_configuration.await_count
+        clock[0] = 100 + step * interval
+        await coordinator.async_refresh()
+        monitoring_reads = api.async_get_monitoring.await_count - monitoring_before
+        configuration_reads = api.async_get_configuration.await_count - configuration_before
+        assert monitoring_reads + configuration_reads == 1
+        observed.append("monitoring" if monitoring_reads else "configuration")
+    assert observed == expected
+
+
+@pytest.mark.parametrize("tier_setup", [3600], indirect=True)
+async def test_failed_optional_reads_advance_only_the_attempted_tier(tier_setup):
+    """A failed source does not consume the other tier's turn or block core updates."""
+    coordinator, api, clock, _ = tier_setup
+    use_settings(coordinator)
+    api.async_get_monitoring.side_effect = Ac100ConnectionError("Monitoring unavailable")
+    api.async_get_configuration.side_effect = Ac100ConnectionError("Settings unavailable")
+    clock[0] = 3700
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success
+    assert coordinator.data.monitoring is None
+    assert coordinator._next_monitoring == 4000
+    assert coordinator._next_configuration == 3700
+    api.async_get_configuration.assert_not_awaited()
+    clock[0] = 7300
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success
+    assert coordinator.data.configuration is None
+    assert coordinator._next_monitoring == 4000
+    assert coordinator._next_configuration == 8200
+    assert api.async_get_monitoring.await_count == 2
+    api.async_get_configuration.assert_awaited_once_with()
+    api.async_get_monitoring.side_effect = None
+    api.async_get_configuration.side_effect = None
+    clock[0] = 10900
+    await coordinator.async_refresh()
+    assert coordinator.data.monitoring is not None
+    assert api.async_get_monitoring.await_count == 3
+    api.async_get_configuration.assert_awaited_once_with()
+    clock[0] = 14500
+    await coordinator.async_refresh()
+    assert coordinator.data.configuration is not None
     assert api.async_get_configuration.await_count == 2
 
 

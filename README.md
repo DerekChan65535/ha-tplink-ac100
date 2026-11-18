@@ -8,13 +8,14 @@ service is required.
 [Releases](https://github.com/DerekChan65535/ha-tplink-ac100/releases) · [Report an issue](https://github.com/DerekChan65535/ha-tplink-ac100/issues) · [Security](SECURITY.md)
 
 > **Early release.** This is not an official TP-LINK or Home Assistant integration.
-> Polling and the non-terminal optional controls have been checked on one controller with the
-> hardware/firmware listed below; see [Controls](#controls) for the exact tested scope.
-> Reboot actions have **not** been tested on live hardware, and neither have
-> the **terminal controls** (a Wi-Fi client's name, rate limit, AP binding, allowed times,
-> disconnect and clearing its saved record): they follow the web pages' source and are tested
-> only against a simulated controller. Do not test reboot or terminal actions on a production
-> Wi-Fi network.
+> Read-only polling at the earlier 60-second default and the non-terminal optional controls
+> have been checked on one controller with the hardware/firmware listed below; see
+> [Controls](#controls) for the exact tested scope. The new 10-second default has not been load-tested.
+> Reboot actions have **not** been tested on live hardware. The **terminal controls** (a Wi-Fi
+> client's name, rate limit, AP binding, allowed times, disconnect and clearing its saved record)
+> follow the web pages' source and simulated-controller tests, but **hardware acceptance is
+> incomplete**. Limited rate-limit and disconnect probes did not meet their acceptance checks.
+> Do not test reboot or terminal actions on a production Wi-Fi network.
 
 ## Scope and compatibility
 
@@ -25,11 +26,11 @@ service is required.
 | Monitoring | Controller, AP, radio, port, interface, firmware and client state, with each client's own readings, Wi-Fi speeds and saved configuration (limits, AP binding, allowed times); controller and radio settings as disabled-by-default readings. |
 | Wireless networks (SSIDs) | Optional device per SSID; off by default because the controller returns Wi-Fi keys with the SSID list (they are dropped in memory). |
 | Controls | Optional, off by default: AP LED, AP radio, SSID enable/broadcast/isolation/IGMP, band steering, load balancing, broadcast storm suppression, multicast, controller name, Save configuration. Live-tested with restore on the hardware above; see [Controls](#controls). |
-| Terminal controls | Optional, off by default, listed on every client's page but disabled: name on the controller, rate limit and caps, AP binding and target, allowed times, disconnect, and clearing the saved record. **Not tested on live hardware**; see [Terminal controls](#terminal-controls). |
+| Terminal controls | Optional, off by default, listed on every client's page but disabled: name on the controller, rate limit and caps, AP binding and target, allowed times, disconnect, and clearing the saved record. **Hardware acceptance incomplete**; see [Terminal controls](#terminal-controls). |
 | AP/controller reboot | Optional, disruptive control; **not tested on live hardware**. |
 | Not included | Firmware installation, factory reset, configuration/certificate files, accounts, portals and authentication lists, network interfaces, DHCP and routing changes, wireless network mode, a per-terminal VLAN, vendor override or permanent block. See [Not included](#not-included). |
 | Debug level logging | Native diagnostic switch; off by default, independent of device management. |
-| Default polling | Core telemetry **60 seconds**; status **5 minutes**; settings **15 minutes**, only while a settings entity is enabled. |
+| Polling | Core telemetry defaults to **10 seconds**, adjustable from **10–3600 seconds** in integration options. Status/settings become due every **5/15 minutes**; settings require an enabled settings entity. See [Polling options](#polling-options). |
 
 The minimum HA version is intentional: this integration uses current HA APIs, without
 compatibility shims for older releases. A newer HA release or controller firmware may
@@ -76,7 +77,25 @@ Native readings, not an embedded controller web panel:
 - The original **Uptime (seconds)** entities keep their unique IDs, numeric seconds and
   statistics. They are disabled by default only on new installations.
 
-Polling shares the existing single management session. Every 60-second core poll also
+### Polling options
+
+In **Settings → Devices & services → TP-Link AC100 → Configure**, set **Core refresh interval
+(seconds)** from **10 to 3600**. The default is **10 seconds**, matching the WebUI's common AP/client
+table timer, not its 3-second CPU/memory loop or 5-second top bar. Existing entries with no saved
+interval use the new default. Saving options reloads only this integration and applies the selected
+interval; it does not recreate devices or entities, change their user settings, or enable management
+or SSID monitoring. Once this version is installed and loaded, changing this option does not need
+another Core restart.
+
+This is a Home Assistant polling option, not a controller setting. The allowed range is an
+integration policy, **not a measured device frequency limit**. The controller's maximum supported
+or safe sustained whole-controller polling frequency is unknown. The 10-second default has not
+been load-tested on the physical controller; the historical live polling checks used 60 seconds.
+The WebUI reads the current page, whereas a shared integration poll reads all accepted pages and
+saved terminal references. A shorter interval increases API load; a poll can take longer than its
+selected interval. Entities still share one session and do not start independent polling loops.
+
+Polling shares the existing single management session. Every core poll also
 reads `host_management.host_info` for client speeds and saved terminal configuration, including
 when no client is connected. It adds one request per 10 listed hosts, which can include departed
 hosts, with a limit of 256 rows (up to 26 requests). A readable host table also adds one unpaged,
@@ -97,10 +116,12 @@ first transport failure on either stops the dependent reads and discards all rad
 results for that poll, while retaining fresh core, client and host data. It does not start
 per-source retries. Core or host-table transport failures and global session/sign-in failures
 still fail the poll.
-Status, port, interface and firmware reads run every 5 minutes. Settings
-are read every 15 minutes, and **only while at least one settings entity is enabled**.
-The slower reads are staggered, with no burst to catch up after downtime. A failed
-slower read makes its readings unavailable; old values are not presented as current.
+Status, port, interface and firmware reads become due every 5 minutes. Settings become due
+every 15 minutes, **only while at least one settings entity is enabled**. Due work runs on core
+polls: one slower read per normal poll, choosing the oldest due deadline so neither tier can
+starve. Long core intervals can delay both tiers beyond their nominal periods. After an explicit
+management action, both enabled tiers are refreshed; there is no catch-up burst after downtime.
+A failed slower read makes its readings unavailable; old values are not presented as current.
 Downloadable diagnostics include source names and counts, not values or network identities.
 
 The controller cannot return single fields, so some requested sections contain more
@@ -118,7 +139,8 @@ option below is on.
 Turn on **Monitor wireless networks** in the integration options to get one device per SSID
 with connected clients, enabled and hidden state, client isolation, security type and default
 VLAN. The controller returns the Wi-Fi and RADIUS keys together with the SSID list and cannot
-leave them out. With this option on, that table is read every 5 minutes; the keys are dropped
+leave them out. With this option on, that table is read with the nominal 5-minute status tier (subject to the
+core polling interval above); the keys are dropped
 in memory and are never stored, logged, shown or included in diagnostics. With the option off,
 the table is not requested.
 
@@ -192,7 +214,7 @@ below; removing an HA device does not erase anything on the controller.
 ### Client pages
 
 Each client's page shows the readings below. They are read-only and **enabled by default**.
-You do not need the client tracker to see them. The entities use the shared 60-second poll;
+You do not need the client tracker to see them. The entities use the shared configurable core poll;
 no entity makes a request. Each known client has 16 connection readings and 18 saved-configuration
 readings (34 enabled entities), plus the optional tracker and 26 disabled terminal controls.
 Disable the readings that you do not need, especially on a large network.
@@ -250,7 +272,9 @@ allowed hours can still reveal sensitive information; review history and externa
 These native controls belong to the **same MAC-identified client device**, not to a second
 terminal device. They are always listed, **disabled by default**, and unavailable unless
 **Enable device control** is on and their source is safe and readable. Enable only the controls
-you need. These controls have **not been tested on live hardware**.
+you need. These controls have **not passed hardware acceptance**. Limited rate-limit and disconnect
+probes did not meet their acceptance checks; they do not validate enforcement, a complete reconnect
+cycle or persistence. No further terminal experiment is part of the refresh-interval update.
 
 | Control | Effect and conditions |
 | --- | --- |
